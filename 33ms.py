@@ -18,7 +18,9 @@ from scipy import optimize
 import pims
 import trackpy as tp
 
-frames = pims.ImageSequence('/Users/hubats01/Desktop/SPT/Us/PAR2/March/fov9/*.tif', as_grey=True)
+frames = pims.ImageSequence(
+            '/Users/hubats01/Desktop/SPT/Us/NWG0026_crt90_DMSO/16_04_05/fov9/*.tif', 
+            as_grey=True)
 
 timestep = 0.033
 pixelsize = 0.155
