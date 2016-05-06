@@ -1,36 +1,40 @@
 clear all
-pixelSize = 0.155;
-timestep = 0.030;
+%%%%%%%%%%%%%%%%%%%%%%%%% Find particles %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%% Initialize parameters
+pixelSize = 0.120;
+timestep = 0.033;
 numFramesFit = 10;
 basepath=[pwd, '/'];
-fovn = 5;
 featsize = 3;
 barint = 1;
 barrg = 50;
 barcc = 1;
 IdivRg = 0;
-numFrames = 99;
-Imin = 0;
-masscut = 550;
+fovn = 1;
+numFrames = 100;
+Imin = 10;
+masscut = 300;
 field = 2;
-frame = 99;
+frame = 46;
+% Adjust parameters
 [M2, MT] = mpretrack_init( basepath, featsize, barint,...
-    barrg, barcc, IdivRg, fovn, frame, Imin, masscut, field);
+    barrg, barcc, IdivRg, fovn, frame, masscut, Imin, field);
 drawnow;
-%% 
+%% Find features
 mpretrack(basepath, fovn, featsize, barint, barrg, ...
-            barcc, IdivRg, numFrames, Imin, masscut, field );
+            barcc, IdivRg, numFrames, masscut, Imin, field );
+%%%%%%%%%%%%%%%%%%%%%%%%% Diffusion rate %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
 %%
 maxdisp = 5;
 goodenough = 80;
 memory = 7;
-for fovn = 1:6  
+% for fovn = 1:6  
     fancytrack(basepath, fovn, featsize, maxdisp, goodenough, memory );
-end
+% end
 %%
     figure(1);
     clf;
-for fovn = 1:6
+for fovn = 1:1
     cd Bead_tracking/res_files;
     load(['res_fov', num2str(fovn), '.mat']);
     cd ../..
@@ -131,6 +135,20 @@ for i = 1:length(c)
 end
 set(gca,'XScale','log');
 set(gca,'YScale','log');
+
+x_mat = cell2mat(cellfun(@(x) x(1:80, 1), x_y_cell, 'UniformOutput', false));
+y_mat = cell2mat(cellfun(@(x) x(1:80, 2), x_y_cell, 'UniformOutput', false));
+
+for i = 1:10
+    M_x{i} = mean((x_mat(:, i+1:end)-x_mat(:, 1:end-i)).^2, 2);
+    M_y{i} = mean((y_mat(:, i+1:end)-y_mat(:, 1:end-i)).^2, 2);
+end
+x_mat = cell2mat(M_x);
+y_mat = cell2mat(M_y);
+figure; hold on;
+for i = 1:75
+    plot(x_mat(:, i), y_mat(:, i));
+end
 %% Write msd to file (for python)
 to_write = cell2mat(cellfun(@(x) x(1:num_Frames), d, 'UniformOutput', false));
 dlmwrite('msd_matlab.csv', to_write);
@@ -170,3 +188,16 @@ nanmean(D((a>0.9)&(a<1.2)))
 plot(a, D, 'b.');
 % axis([0 2 0 1])
 
+%% 
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Off Rate %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
+%load feature finding workspace
+load MT_1_Feat_Size_3.mat
+timestep = 2; %(time step in seconds)
+numBins = 100
+data = histcounts(MT(:, 7), numBins);
+fitData = data/max(data);
+fitData = fitData(1:numBins);
+fitTimes = 0:timestep:((length(fitData)-1)*timestep);
+figure; hold on;
+plot(fitTimes, fitData);
+x = fit_offRate(fitTimes, fitData)

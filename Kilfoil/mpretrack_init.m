@@ -146,7 +146,7 @@ img=imread([pathin 'fov' num2str(fovn) '/fov' num2str(fovn) '_' num2str(frame,'%
     axis equal;
     
     format short g
-    disp(M)
+%     disp(M);
     disp(['Kept : ' num2str(size(M,1))])
     disp(Mrej)
     disp(['Minimum Intensity : ' num2str(min(M(:,3)))])

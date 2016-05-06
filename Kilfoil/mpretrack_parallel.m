@@ -72,28 +72,21 @@ mkdir( pathout );
 
 d=0;
 load([pathin 'fov' num2str(fovn) '_times.mat']);
-
-for x = 1:numframes
-    strnam=[pathin 'fov' num2str(fovn) '/fov' num2str(fovn) '_' num2str(x,'%04i') '.tif'];
-    img=imread(strnam);
-%     if Inv == 1
-%         img=255-img;
-%     end
-
-    M = feature2D(img,1,featuresize,masscut,Imin,field);
-
-    if mod(x,50) == 0
-        disp(['Frame ' num2str(x)])
-        % partway save, useful if the computer tends to crash for some
-        % reason
-%         save([pathout 'MT_' num2str(fovn) '_Feat_Size_' num2str(featuresize) '_partial.mat'] ,'MT')
-    end
-
-    [~,b]=size(M);
+if isempty(gcp('nocreate')); parpool(8); end
+M_cell = cell(1, numframes);
+parfor i = 1:numframes
+    strname=[pathin 'fov' num2str(fovn) '/fov' num2str(fovn) '_' num2str(i,'%04i') '.tif'];
+    img=imread(strname);
+    M_temp = feature2D(img,1,featuresize,masscut,Imin,field);
+    M_cell{i} = M_temp;
+end
     
+for x = 1:numframes
+    M = M_cell{x};
+    [a,b]=size(M);
+    strnam=[pathin 'fov' num2str(fovn) '/fov' num2str(fovn) '_' num2str(x,'%04i') '.tif'];
 if( b == 5 )    
-
-        %Rejection process
+    %Rejection process
     X=find(M(:,5)>barrCc);
     M(X,1:5)=0;
     X=find(M(:,4)>barrRg);
@@ -102,10 +95,7 @@ if( b == 5 )
     M(X,1:5)=0;
     X=find(M(:,3)./M(:,4)<IdivRg);
     M(X,1:5)=0;
-%     M(M(:, 5)>barrCc, 1:5) = 0;
-%     M(M(:, 4)>barrRg, 1:5) = 0;
-%     M(M(:, 3)<barrI, 1:5) = 0;
-%     M(M(:,3)./M(:,4)<IdivRg, 1:5) = 0;
+
     M=M(M(:,1)~=0,:);
 
     a = length(M(:,1));
@@ -114,24 +104,12 @@ if( b == 5 )
     MT(d+1:a+d, 6)=x;
     MT(d+1:a+d, 7)=time(x);
     d = length(MT(:,1));
-%     disp([num2str(a) ' features kept.'])
+    disp([num2str(a) ' features kept.'])
 end
-    clear img;
-    clear R;
-    clear M;
-    clear pic;
-    clear X;
-    clear t;
-    clear i;
-    clear j;
 end
 
 format long e;
-% if Inv == 0
-    save([pathout 'MT_' num2str(fovn) '_Feat_Size_' num2str(featuresize)],'MT')
-% elseif Inv == 1
-%     save([pathout 'MT_' num2str(fovn) '_Feat_Size_' num2str(featuresize) '_inv'],'MT')
-% end
+save([pathout 'MT_' num2str(fovn) '_Feat_Size_' num2str(featuresize)],'MT')
 copyfile( strnam, [pathout 'fov' num2str(fovn) '_last.tif'] );    
 
 
