@@ -11,11 +11,11 @@ barrg = 50;
 barcc = 1;
 IdivRg = 0;
 fovn = 1;
-numFrames = 100;
+numFrames =1500;
 Imin = 10;
 masscut = 300;
 field = 2;
-frame = 46;
+frame = 1;
 % Adjust parameters
 [M2, MT] = mpretrack_init( basepath, featsize, barint,...
     barrg, barcc, IdivRg, fovn, frame, masscut, Imin, field);
@@ -191,9 +191,10 @@ plot(a, D, 'b.');
 %% 
 %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Off Rate %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
 %load feature finding workspace
+cd Feature_finding/
 load MT_1_Feat_Size_3.mat
 timestep = 2; %(time step in seconds)
-numBins = 100
+numBins = 121;
 data = histcounts(MT(:, 7), numBins);
 fitData = data/max(data);
 fitData = fitData(1:numBins);
@@ -201,3 +202,4 @@ fitTimes = 0:timestep:((length(fitData)-1)*timestep);
 figure; hold on;
 plot(fitTimes, fitData);
 x = fit_offRate(fitTimes, fitData)
+cd ..

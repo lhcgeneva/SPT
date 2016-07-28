@@ -1,13 +1,10 @@
 from __future__ import division, unicode_literals, print_function  # for compatibility with Python 2 and 3
 import os
+import pdb
 from multiprocessing import Pool, Process, Queue
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import trackpy as tp
-# the following line only works in an IPython notebook
-%matplotlib notebook
-%matplotlib inline
-# Optionally, tweak styles.
 mpl.rc('figure',  figsize=(10, 6))
 mpl.rc('image', cmap='gray')
 import numpy as np
@@ -16,26 +13,31 @@ from pandas import DataFrame, Series  # for convenience
 from scipy import optimize
 import pims
 import math
+
 def func_squared(t, D, a):
     return 4*D*t**a
 no_movs = 3
 no_workers = 8
-root_dir = '/Users/hubats01/Desktop/SPT/Us/Diffusion/PAR3/16_04_14_PAR3_WT_NotAlive/'
+root_dir = '/Users/hubatsl/Desktop/SPT/Us/Diffusion/PAR6/Survived/'
 parallel = True
-for minm in [600]:
+show_figs = True
+threshold = 300
+for minm in [threshold]:
     for i in range(1, no_movs+1):
-        frames = pims.ImageSequence(root_dir+'fov'+str(i)+'/*.tif', as_grey=True)
+        frames = pims.ImageSequence(root_dir+'16_07_20_PAR6_'+str(i)+'/*.tif', as_grey=True)
         timestep = 0.033
         pixelsize = 0.120
         featSize = 3
         mem = 7
         dist = 5
-        fig1 = plt.figure()
-        plt.imshow(frames[0])
-        f = tp.locate(frames[0], featSize, invert=False, minmass = minm)
-        fig = tp.annotate(f, frames[0])
-        fig1 = fig.get_figure()
-        fig1.savefig(root_dir+'Thresh_'+str(i)+'_'+str(minm)+'.pdf', bbox_inches='tight')
+        if show_figs:
+            fig1 = plt.figure()
+            calibrationFrame = 1
+            plt.imshow(frames[calibrationFrame])
+            f = tp.locate(frames[calibrationFrame], featSize, invert=False, minmass = minm)
+            fig = tp.annotate(f, frames[calibrationFrame])
+            fig1 = fig.get_figure()
+            fig1.savefig(root_dir+'Thresh_'+str(i)+'_'+str(minm)+'.pdf', bbox_inches='tight')
         if parallel:
             #Create list of frames to be analysed by separate processes
             f_list = []
@@ -76,13 +78,13 @@ for minm in [600]:
             MSD = numpy_array[0:numFrames, j]
             popt, pcov = optimize.curve_fit(func_squared, time, MSD)
             DA[j, ] = popt
-        if True:
+        if show_figs:
             fig2 = plt.figure()
             ax2 = fig2.add_subplot(111)
             ax2.plot(DA[:, 1], DA[:, 0], '.')
             plt.savefig(root_dir+'DiffAlpha_'+str(i)+'_'+str(minm)+'.png', bbox_inches='tight')
         D = DA[:, 0]
         a = DA[:, 1]
-        #np.mean(D[(a>0.9) & (a<1.2)])
         np.savetxt(root_dir+'a'+str(i)+'_'+str(minm)+'.csv', a, delimiter=',')
         np.savetxt(root_dir+'D'+str(i)+'_'+str(minm)+'.csv', D, delimiter=',')
+
