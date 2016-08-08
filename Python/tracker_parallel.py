@@ -16,15 +16,16 @@ import math
 
 def func_squared(t, D, a):
     return 4*D*t**a
-no_movs = 3
-no_workers = 8
-root_dir = '/Users/hubatsl/Desktop/SPT/Us/Diffusion/PAR6/Survived/'
+no_movs = 1
+no_workers = 5
+root_dir = '/Users/hubatsl/Desktop/SPT/Us/Diffusion/PAR6/'
 parallel = True
 show_figs = True
-threshold = 300
+threshold = 600
+print(threshold)
 for minm in [threshold]:
-    for i in range(1, no_movs+1):
-        frames = pims.ImageSequence(root_dir+'16_07_20_PAR6_'+str(i)+'/*.tif', as_grey=True)
+    for i in range(no_movs, no_movs+1):
+        frames = pims.ImageSequence(root_dir+'16_04_10_TH411_M9/fov'+str(i)+'/*.tif', as_grey=True)
         timestep = 0.033
         pixelsize = 0.120
         featSize = 3
@@ -45,9 +46,9 @@ for minm in [threshold]:
                 return tp.batch(fs, 3, minm, invert=False)
             s = math.floor(len(frames)/no_workers) #Get size of chunks
             for ii in range(0, no_workers-1):
-                f_list.append(frames[s*ii:s*(ii+1)])#Issue with index, check output!
+                f_list.append(frames[int(s*ii):int(s*(ii+1))])#Issue with index, check output!
             #Last worker gets slightly more frames
-            f_list.append(frames[s*(no_workers-1):-1])
+            f_list.append(frames[int(s*(no_workers-1)):-1])
             pool = Pool(processes = no_workers)
             ret = pool.map(single_Arg_Batch, f_list)
             result = pd.concat(ret)
@@ -55,6 +56,7 @@ for minm in [threshold]:
             pool.join()
         else:
             result = tp.batch(frames[:], featSize, minmass=minm, invert=False)
+
         t = tp.link_df(result, dist, memory=mem)
         t1 = tp.filter_stubs(t, 80)
         fig = tp.plot_traj(t1)

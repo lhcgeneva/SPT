@@ -1,13 +1,13 @@
 
 from __future__ import division, unicode_literals, print_function  # for compatibility with Python 2 and 3
 import os
-import ipyparallel as ipp
+# import ipyparallel as ipp
 import matplotlib as mpl
 import matplotlib.pyplot as plt
 import trackpy as tp
 # the following line only works in an IPython notebook
-%matplotlib notebook
-%matplotlib inline
+# %matplotlib notebook
+# %matplotlib inline
 # Optionally, tweak styles.
 mpl.rc('figure',  figsize=(10, 6))
 mpl.rc('image', cmap='gray')
@@ -18,9 +18,10 @@ from scipy import optimize
 
 import pims
 no_movs = 1
-root_dir = '/Users/hubats01/Desktop/16_04_15/'
+root_dir = '/Users/hubatsl/Desktop/SPT/Us/Diffusion/PAR6/'
 for i in range(1, no_movs+1):
-    frames = pims.ImageSequence(root_dir+'fov'+str(i)+'/*.tif', as_grey=True)
+    frames = pims.ImageSequence('/Users/hubatsl/Desktop/SPT/sample_data/bulk_water/*.png', as_grey=True)
+    # frames = pims.ImageSequence(root_dir+'16_04_10_TH411_M9/fov'+str(i)+'/*.tif', as_grey=True)
     timestep = 0.033
     pixelsize = 0.120
     minm = 600
