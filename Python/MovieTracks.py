@@ -1,16 +1,16 @@
 #Author: Lars Hubatsch, object oriented wrapper for trackpy
-
+from IPython.core.debugger import Tracer
 from itertools import repeat
 from math import ceil
 from matplotlib.pyplot import figure, imshow, savefig, subplots, close, show, ioff
 from multiprocessing import Pool
-from numpy import c_, linspace, mean, zeros, pi, sin
+from numpy import arange, c_, histogram, linspace, log10, mean, polyfit, sum, transpose, zeros
 from pandas import concat, DataFrame, read_csv
 from pims import ImageSequence
 from pims_nd2 import ND2_Reader
 from os import chdir, path, walk, makedirs
 from re import split
-from scipy import optimize
+from scipy import integrate, optimize
 from sys import exit
 from tifffile import imsave
 
@@ -62,7 +62,7 @@ class ParticleFinder(object):
         if 'nd2' in self.stackPath: self.write_images()
         # Read in image sequence from newly created file
         self.frames = ImageSequence(self.basePath+self.stackName+'/*.tif', as_grey=True)
-        self.frames=self.frames[:499]
+        # self.frames=self.frames[:199]
 
     def analyze(self):
         '''
@@ -93,11 +93,11 @@ class ParticleFinder(object):
                                              repeat(self.featSize),
                                              repeat(self.threshold)))
             # Concatenate results and close and join pool
-            self.result = concat(res)
+            self.features = concat(res)
             pool.close()
             pool.join()
         else:
-            self.result = tp.batch(self.frames[:], self.featSize,
+            self.features = tp.batch(self.frames[:], self.featSize,
                                    minmass=self.threshold, invert=False)
 
     def plot_calibration(self, calibrationFrame=1):
@@ -174,7 +174,7 @@ class DiffusionFitter(ParticleFinder):
         super().__init__(*args, **kwargs)
 
     def analyze(self):
-        super(DiffusionFitter, self).analyze()
+        super().analyze()
         self.link_feats()
         self.analyze_tracks()
         if self.showFigs: self.plot_trajectories()
@@ -192,30 +192,30 @@ class DiffusionFitter(ParticleFinder):
         DA = zeros([numParticles, 2])
         for j in range(0, numParticles):
             MSD = imAsNumpyArray[0:numFrames, j]
-            popt, pcov = optimize.curve_fit(self.func_squared, self.time, MSD)
-            DA[j, ] = popt
-        self.D = DA[:, 0]
-        self.a = DA[:, 1]
+            results = polyfit(log10(self.time), log10(MSD), 1)
+            DA[j, ] = [results[0], results[1]]
+        self.D = 10**DA[:, 1]/4
+        self.a = DA[:, 0]
         self.D_restricted = mean(self.D[(self.a > 0.9) & (self.a < 1.2)])
-
-    def func_squared(self, t, D, a):
-        return 4 * D * t ** a
 
     def link_feats(self):
         '''
         Link individual frames to build trajectories, filter out stubs shorter
         than 80. Get Mean Square Displacement (msd)
         '''
-        t = tp.link_df(self.result, self.dist, memory=self.memory)
+        t = tp.link_df(self.features, self.dist, memory=self.memory)
         self.trajectories = tp.filter_stubs(t, 80)
         # Get msd microns per pixel = 100/285., frames per second = 24
         self.im = tp.imsd(self.trajectories, self.pixelSize, 1 / self.timestep)
 
     def plot_diffusion_vs_alpha(self):
+        grouped = self.trajectories.groupby('particle')
+        weights = [mean(group.mass) for name, group in grouped]
         self.set_fig_style()
         fig = figure()
         ax = fig.add_subplot(111)
-        ax.plot(self.a, self.D, '.')
+        # ax.plot(self.a, self.D, '.')
+        ax.scatter(self.a, self.D, c=weights)
         if self.saveFigs:
             savefig(self.stackPath + 'Particle_D_a.pdf', bbox_inches='tight')
         if self.showFigs: show()
@@ -237,7 +237,8 @@ class DiffusionFitter(ParticleFinder):
         ax.set(ylabel='$\Delta$ $r^2$ [$\mu$m$^2$]',
                xlabel='lag time $t$', ylim=[0.001, 10])
         ax.set_xscale('log')
-        ax.set_yscale('log')        if self.saveFigs:
+        ax.set_yscale('log')        
+        if self.saveFigs:
             savefig(self.stackPath + 'Particle_msd.pdf', bbox_inches='tight')
         if self.showFigs: show()
         close()
@@ -253,28 +254,55 @@ class OffRateFitter(ParticleFinder):
     '''
     Extends ParticleFinder to implement Off rate calculation
     '''
-    def __init__(self):
-        super(OffRateFitter, self).__init__()
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    def analyze(self):
+        super().analyze()
+        self.partCount, _ = histogram(self.features.frame,
+                                      bins=self.features.frame.max()+1)
+        self.fitTimes = arange(0, len(self.partCount)*self.timestep,
+                               self.timestep)
 
     def fit_offRate(self):
         '''
-        Fit differential equation to data by solving with ode45 and 
-        applying minimum least squares
-        Still to be implemented, above code is taken over from matlab
+        Fit differential equation to data by solving with odeint and 
+        using fmin to parameters that best fit time/intensity data
         '''
-        def objFunc(x, fitTimes, fitData):
-            pass
-            # [t,y] = integrate.ode45(@(t,y) x(1)*x(2) - (x(1)+x(3))*y, [min(fitTimes) max(fitTimes)], x(2));   
-        #     y_interp = interp1(t, y, fitTimes)
-        #     f = sum((y_interp-fitData).^2)
-        #     return f
-        # kOffStart = 0.001
-        # kPhStart = 0.01
-        # NssStart = 1
-        # x = fminsearch(@(x) objFunc(x, fitTimes, fitData), [kOffStart, NssStart, kPhStart])
-        # [t,y] = ode45(@(t,y) x(1)*x(2) - (x(1)+x(3))*y, [min(fitTimes) max(fitTimes)], x(2)
-        # plot(t,y,'-', 'LineWidth', 3)
+        def dy_dt(y, t, kOff, Nss, kPh):
+            # Calculates derivative for known y and params
+            return kOff*Nss-(kOff+kPh)*y
 
+        def objFunc(params, fitTimes, fitData):
+            # Returns distance between solution of diff. equ. with 
+            # parameters params and the data fitData at times fitTimes
+            # Do integration of dy_dt using parameters params      
+            y = integrate.odeint(dy_dt, params[1], fitTimes,
+                args=(params[0], params[1], params[2]))
+            # Get y-values at the times needed to compare with data
+            # Tracer()()
+            return sum((transpose(y)-fitData)**2)
+        # Set reasonable starting values for optimization
+        kOffStart, NssStart, kPhStart = 0.01, 100, 0.01
+        # Optimize objFunc to find optimal kOffStart, NssStart, kPhStart
+        x = optimize.fmin(objFunc, [kOffStart, NssStart, kPhStart],
+                          args=(self.fitTimes, self.partCount))
+        self.kOff, self.Nss, self.kPh = (x[0], x[1], x[2])
+        # Get solution using final parameter set determined by fmin
+        self.fitSol = integrate.odeint(dy_dt, self.Nss, self.fitTimes,
+                                       args=(self.kOff, self.Nss, self.kPh))
+        # Do plot if needed
+        if self.showFigs: self.plot_offRateFit()
+
+    def plot_offRateFit(self):
+        self.set_fig_style()
+        fig, ax = subplots()
+        ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSol)
+        ax.set(ylabel='# particles', xlabel='t [s]')   
+        if self.saveFigs:
+            savefig(self.stackPath + '_offRateFit.pdf', bbox_inches='tight')
+        if self.showFigs: show()
+        close()
 
 class StructJanitor(object):
     '''

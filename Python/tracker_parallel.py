@@ -1,33 +1,28 @@
 from __future__ import division, unicode_literals, print_function  # for compatibility with Python 2 and 3
-import os
-import pdb
-from multiprocessing import Pool, Process, Queue
-import matplotlib as mpl
+from multiprocessing import Pool
 import matplotlib.pyplot as plt
 import trackpy as tp
-mpl.rc('figure',  figsize=(10, 6))
-mpl.rc('image', cmap='gray')
 import numpy as np
 import pandas as pd
-from pandas import DataFrame, Series  # for convenience
 from scipy import optimize
 import pims
 import math
 
 def func_squared(t, D, a):
     return 4*D*t**a
+
 no_movs = 1
 no_workers = 5
-root_dir = '/Users/hubatsl/Desktop/SPT/Us/Diffusion/PAR6/'
+root_dir = '/Users/hubatsl/Desktop/'
 parallel = True
 show_figs = True
-threshold = 600
-print(threshold)
+threshold = 15000
+timestep = 0.033
+pixelsize = 0.120
+
 for minm in [threshold]:
     for i in range(no_movs, no_movs+1):
-        frames = pims.ImageSequence(root_dir+'16_04_10_TH411_M9/fov'+str(i)+'/*.tif', as_grey=True)
-        timestep = 0.033
-        pixelsize = 0.120
+        frames = pims.ImageSequence(root_dir+'/fov'+str(i)+'/*.tif', as_grey=True)
         featSize = 3
         mem = 7
         dist = 5
@@ -64,7 +59,7 @@ for minm in [threshold]:
         fig1.savefig(root_dir+'Traj_'+str(i)+'_'+str(minm)+'.pdf', bbox_inches='tight')
         tm = t1
         im = tp.imsd(tm, pixelsize, 1/timestep)  # microns per pixel = 100/285., frames per second = 24
-        if False:
+        if True:
             fig, ax = plt.subplots()
             ax.plot(im.index, im, 'k-', alpha=0.4)  # black lines, semitransparent
             ax.set(ylabel=r'$\langle \Delta r^2 \rangle$ [$\mu$m$^2$]',

@@ -1,205 +1,225 @@
-clear all
-%%%%%%%%%%%%%%%%%%%%%%%%% Find particles %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
-%% Initialize parameters
-pixelSize = 0.120;
-timestep = 0.033;
-numFramesFit = 10;
-basepath=[pwd, '/'];
-featsize = 3;
-barint = 1;
-barrg = 50;
-barcc = 1;
-IdivRg = 0;
-fovn = 1;
-numFrames =1500;
-Imin = 10;
-masscut = 300;
-field = 2;
-frame = 1;
-% Adjust parameters
-[M2, MT] = mpretrack_init( basepath, featsize, barint,...
-    barrg, barcc, IdivRg, fovn, frame, masscut, Imin, field);
-drawnow;
-%% Find features
-mpretrack(basepath, fovn, featsize, barint, barrg, ...
-            barcc, IdivRg, numFrames, masscut, Imin, field );
-%%%%%%%%%%%%%%%%%%%%%%%%% Diffusion rate %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%        
-%%
-maxdisp = 5;
-goodenough = 80;
-memory = 7;
-% for fovn = 1:6  
-    fancytrack(basepath, fovn, featsize, maxdisp, goodenough, memory );
-% end
-%%
-    figure(1);
-    clf;
-for fovn = 1:1
-    cd Bead_tracking/res_files;
-    load(['res_fov', num2str(fovn), '.mat']);
-    cd ../..
-    c = cell(1, max(res(:, 8)));
-    for i = 1:max(res(:, 8))
-    c{i} = res(res(:, end) == i, :);
-    end
-    ls = cell2mat(cellfun(@(x) x(1), cellfun(@size, c, 'UniformOutput', false), 'UniformOutput', false));
-    edges = goodenough-goodenough:10:400-goodenough;
-    figure(1)
-    h = histogram(ls, edges); shg; hold on;
-%     %Fit power law
-%     f=('a*(x-b)^c');
-%     options = fitoptions(f);
-%     options.StartPoint = [500, 0, -1];
-%     centers = (edges(1:end-1)+(edges(1)-edges(1))/2-80)';
-%     v = h.Values';
-%     v = v(centers>0);
-%     centers = centers(centers>0);
-%     fi = fit(centers, v, f, options);
-%     fi.c
-    %Fit exponential
-%     f=('a*exp(-(x-b)/c)');
-%     options = fitoptions(f);
-%     options.StartPoint = [70, 0, 10];
-%     centers = (edges(1:end-1)+(edges(1)-edges(1))/2-80)';
-%     v = h.Values';
-%     v = v(centers>0);
-%     centers = centers(centers>0);
-%     fi = fit(centers, v, f, options);
-%     fi.c
-%     close
-%     % Plot
-%     figure(2); 
-%     subplot(3, 2, fovn); hold on;
-% %     h = histogram(ls, edges-fi.c); shg; hold on;
-%     plot(centers, v, '.', 'MarkerSize', 15)
-%     plot(fi);
-%     l = legend;
-%     set(l,'visible','off')
-%     text(150, 50, num2str(fi.c), 'FontSize', 16);
+%% This file is a wrapper for the Kilfoil particle tracking algorithm.
+% To add a new folder for tracking see section 'Write parameters to file'.
+% Images have to be stored as 8-bit tifs in folders named fovn, where 'n' is the
+% number of the movie.
+% After having created a log_file with parameters frameinterval, featsize,
+% masscut, maxdisp, min_track_length and memory for each movie, 
+% the section 'Find particles' finds tracks for all movies in the current
+% folder, storing results in Bead_tracking and Feature_finding (One
+% workspace per movie)
+% The last part of the code calculates off-rates using a method described
+% in Robin et al. (2014). For fitting off-rates, first call find_particles
+% find_particles(logfile, fovn, 0, 1); for feature finding and then change
+% the parameters for time and numbins in the last section of the code
+% before running.
+%% %%%%%%%%%%%%%%%%%%%%% Write parameters to file %%%%%%%%%%%%%%%%%%%%%%%%%
+% When adding new files or initializing a new folder with movies, the
+% following stores some metadata that's important for the tracking in a
+% file in the same folder called 'log_file.txt'
+% 
+% frame_interval = [0.033; 0.033; 0.033; 0.033; 0.033]; % Frame interval in s
+% pixel_size = [0.12; 0.12; 0.12; 0.12; 0.12];  % pixel size in microns
+% masscut = [330; 350; 350; 350; 320];
+% featsize = [3; 3; 3; 3; 3];
+% maxdisp = [5; 5; 5; 5; 5];
+% memory = [7; 7; 7; 7; 7];
+% min_track_length = [80; 80; 80; 80; 80];
+% log_file = table(frame_interval, pixel_size, featsize, maxdisp, masscut, ...
+%                  memory, min_track_length);
+% writetable(log_file);
+%% %%%%%%%%%%%%%%%%%%%%%%% Find particles %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+logfile = readtable('log_file.txt');
+for i = 1:height(logfile)
+    find_particles(logfile, i, 0, 1)
 end
-%% Read images
-cd([basepath, 'fov', num2str(fovn)])
+
+%% %%%%%%%%%%%%%%%%%% Or: set parameters manually %%%%%%%%%%%%%%%%%%%%%%%%%
+% Use for testing individual movies, make sure all parameters are correct,
+% then run this section
+fovn = 1;
+featsize = nan(fovn, 1);
+frame_interval = nan(fovn, 1);
+masscut = nan(fovn, 1);
+pixel_size = nan(fovn, 1);
+maxdisp = nan(fovn, 1);
+min_track_length = nan(fovn, 1);
+memory = nan(fovn, 1);
+featsize(end) =3;
+frame_interval(end) = 0.040;
+masscut(end) = 650;
+pixel_size(end) = 0.1049;
+% Tracking parameters
+maxdisp(end) = 5;
+min_track_length(end) = 80;
+memory(end) = 7;
+% Create table without writing to file (just for testing one movie)
+log_file = table(frame_interval, pixel_size, featsize, maxdisp, masscut, ...
+                 memory, min_track_length);
+find_particles(log_file, fovn, 0, 1)
+%% The following code can be run individually for each fovn (so for each movie)
+%  By setting fovn=n the nth movie in this folder will be used for analysis
+%  The time step and pixel size are read from the metadata file
+%  'log_file.txt'
+fovn =1;
+% logfile = readtable('log_file.txt');
+logfile = log_file;
+min_track_length = logfile.min_track_length(fovn);
+frame_interval = logfile.frame_interval(fovn);
+
+% Plot histogram of track lengths longer than min_track_length
+figure(1); clf;
+cd Bead_tracking/res_files;
+load(['res_fov', num2str(fovn), '.mat']);
+cd ../..
+c = cell(1, max(res(:, 8)));
+for i = 1:max(res(:, 8))
+    c{i} = res(res(:, end) == i, :);
+end
+ls = cell2mat(cellfun(@(x) x(1), cellfun(@size, c, 'UniformOutput', false), ...
+                                'UniformOutput', false));
+edges = min_track_length-min_track_length:10:400-min_track_length;
+figure(1)
+h = histogram(ls, edges); shg; hold on;
+v = h.Values';
+centers = (edges(1:end-1)+(edges(1)-edges(1))/2-80)';
+v = v(centers>0);
+centers = centers(centers>0);
+
+% Put x_y positions for each track into cell array, add nans for missing points
+% pixelSize = 0.1049; % Comment out pixelSize below, if setting manually
+pixelSize = logfile.pixel_size(fovn);
+disp(['Pixel size is ', num2str(pixelSize), 'microns.']);
+x_y_cell = cellfun(@(x) x(:, 1:2)*pixelSize, c, 'UniformOutput', false);
+t_cell = cellfun(@(x) x(:, 7)-min(x(:, 7)), c, 'UniformOutput', false);
+frame_index_cell = cellfun(@(x) x(:, 6), c, 'UniformOutput', false);
+for j = 1:length(frame_index_cell)
+    a = diff(frame_index_cell{j});
+    i = 1;
+    while i <= length(a)
+        if ~isequal(a(i), 1)
+            b = t_cell{j};
+            d = x_y_cell{j};
+            e = frame_index_cell{j};
+            a = [a(1:i); ones(a(i)-1, 1); a(i+1:end)];
+            t_cell{j} = [b(1:i); nan(a(i)-1, 1); b(i+1:end)];
+            x_y_cell{j} = [d(1:i, :); nan(a(i)-1, 2); d(i+1:end, :)];
+            frame_index_cell{j} = [e(1:i-1); (e(i):e(i+1))'; e(i+2:end)];
+        end
+        i = i + 1;
+    end
+end
+
+% Get step distance between neighboring frames
+distances = cellfun(@(x) (sqrt(diff(x(:, 1)).^2+diff(x(:, 2)).^2)), x_y_cell, 'UniformOutput', false);
+
+% Plot tracks, reversed y-axis (to fit image)
+figure; hold on;
+for i = 1:length(x_y_cell)
+    plot(x_y_cell{i}(:, 1),x_y_cell{i}(:, 2));
+end
+set(gca,'Ydir','reverse');
+axis square
+
+%% Calculate msd from tracks
+
+msd  = cell(1, length(c));
+stepsize = cell(1, length(c));
+for j = 1:length(x_y_cell)
+    for tau = 1:length(x_y_cell{j})-1
+        temp=nan(length(x_y_cell{j})-tau, 1);
+        for i =  1:length(x_y_cell{j})-tau
+            temp(i) = (x_y_cell{j}(i+tau, 1)-x_y_cell{j}(i, 1))^2+...
+                          (x_y_cell{j}(i+tau,2)-x_y_cell{j}(i, 2))^2;
+        end
+        if tau == 1
+            stepsize{j} = sqrt(temp);
+            temp
+        end
+        msd{j}(tau) = nanmean(temp);
+    end
+    msd{j} = [0,msd{j}];
+end
+stepsize_rows = cellfun(@(x) x', stepsize, 'UniformOutput', false);
+stepsize_mat = [stepsize_rows{:}];
+steps_filter = stepsize_mat(stepsize_mat<0.1);
+r=[];ad=[];
+for i=1: length(x_y_cell)
+    for j=1:length(x_y_cell{i})-1
+%         if sum(isnan(x_y_cell{i}(j+1,:)))==0 %sum(isnan(x_y_cell{i}(j,:)))==0 && 
+        x1=x_y_cell{i}(j,1);
+        x2=x_y_cell{i}(j+1,1);
+        y1=x_y_cell{i}(j,2);
+        y2=x_y_cell{i}(j+1,2);
+        temp=sqrt((x2-x1)^2+(y2-y1)^2);
+        r=[temp;r];
+%         end
+    end
+end
+%%
+% Plot all msd over time
+figure; hold on;
+for i = 1:length(c)
+    plot(msd{i}, 'b');
+end
+set(gca,'XScale','log');
+set(gca,'YScale','log');
+
+% Fit MSD = 4Dt^a, plot D(a)
+numFramesFit = 10;
+D = zeros(1,length(msd));
+a = zeros(1,length(msd));
+for i = 1:length(msd)
+    lx = log10((frame_interval):(frame_interval):(10*frame_interval))';
+    ly = log10(msd{i}(2:numFramesFit+1))';
+    p = polyfit(lx, ly, 1);
+    D(i) = 10^(p(2))/4;
+    a(i) = p(1);
+end
+figure(6); clf; hold on;
+scatter(a, D)
+mean(D(a>0.9 & a<1.2))
+
+%% %%%%%%%%%%%%%%%%%%%%%%%%%%%% Off Rate %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+% cd Feature_finding/
+% load MT_1_Feat_Size_5.mat
+% timestep = 0.5; %(time step in seconds)
+% numBins = 150;
+% data = histcounts(MT(:, 7), numBins);
+% fitData = data/max(data);
+% fitData = fitData(1:numBins);
+% fitTimes = 0:timestep:((length(fitData)-1)*timestep);
+% figure; hold on;
+% plot(fitTimes, fitData);
+% x = fit_offRate(fitTimes, fitData);
+% cd ..
+% 
+%% %%%%%%%%%%%%%% Create movie with tracked particles in red %%%%%%%%%%%%%%
+% Read images
+numFrames = 500;
+cd(['fov', num2str(fovn)])
 im = imread(['fov', num2str(fovn), '_0001.tif']);
 im = zeros([numFrames, size(im)]);
-for i = 0:1000%numFrames
-    im(i+1, :, :) = imread(['fov', num2str(fovn), '_', num2str(i,'%04d'), '.tif']);
+for i = 1:numFrames
+    im(i, :, :) = imread(['fov', num2str(fovn), '_', ...
+                            num2str(i,'%04d'), '.tif']);
 end
 cd ..
+
 %% Display movie
+cd('Bead_tracking/res_files/');
+load(['res_fov', num2str(fovn), '.mat']);
+cd ../..
 v = VideoWriter('Tracking_50p.avi');
 open(v);
 figure('Visible','Off')
-for i = 1:1000%numFrames
+for i = 1:numFrames
     imshow(squeeze(im( i, :, :)) ,[]);
     hold on;
-    plot(res(res(:, 6) == i, 1),res(res(:, 6) == i, 2), 'ro', 'MarkerSize', 15);
+    plot(res(res(:, 6) == i, 1),res(res(:, 6) == i, 2), 'ro',...
+         'MarkerSize', 5);
     hold off;
     frame = getframe;
     writeVideo(v,frame);
 drawnow
 end
 close(v)
-%% Calculate simulated brownian motion
-Diff_coeffs = normrnd(0.15, 0.05, 177);
-x_y_cell = cell(1, 177);
-for i = 1:177
-    x_y_cell{i}(1, 1:2) = 0;
-    for j = 2:80
-        x_y_cell{i}(j, 1:2) = x_y_cell{i}(j-1, 1:2) + ...
-                                randn(1, 2)*sqrt(2*Diff_coeffs(i)*timestep);
-    end
-end
-t_cell = repmat({linspace(0, timestep*80, 80)'}, 1, 177);
-%% Get x_y positions from experiments
-x_y_cell = cellfun(@(x) x(:, 1:2)*pixelSize, c, 'UniformOutput', false);
-t_cell = cellfun(@(x) x(:, 7)-min(x(:, 7)), c, 'UniformOutput', false);
-%% Plot tracks, reversed y-axis (to fit image)
-figure; hold on;
-for i = 1:length(x_y_cell)
-plot(x_y_cell{i}(:, 1),x_y_cell{i}(:, 2));
-end
-set(gca,'Ydir','reverse')
-%% Calculate MSD via gaussians
-d = cell(1, length(c));
-options = statset('Display','final', 'MaxIter', 1000);
-D = zeros(1, length(c));
-for i = 1:length(c)
-    d{i} = (x_y_cell{i}(:, 1) - x_y_cell{i}(1, 1)).^2 + (x_y_cell{i}(:, 2) - x_y_cell{i}(1, 2)).^2;
-    obj = gmdistribution.fit(diff(d{i}),1,'Options',options);
-    D(i) = obj.mu;
-end
-%% Plot all msd over time
-figure; hold on;
-for i = 1:length(c)
-    plot(t_cell{i}, d{i}, 'b');
-end
-set(gca,'XScale','log');
-set(gca,'YScale','log');
-
-x_mat = cell2mat(cellfun(@(x) x(1:80, 1), x_y_cell, 'UniformOutput', false));
-y_mat = cell2mat(cellfun(@(x) x(1:80, 2), x_y_cell, 'UniformOutput', false));
-
-for i = 1:10
-    M_x{i} = mean((x_mat(:, i+1:end)-x_mat(:, 1:end-i)).^2, 2);
-    M_y{i} = mean((y_mat(:, i+1:end)-y_mat(:, 1:end-i)).^2, 2);
-end
-x_mat = cell2mat(M_x);
-y_mat = cell2mat(M_y);
-figure; hold on;
-for i = 1:75
-    plot(x_mat(:, i), y_mat(:, i));
-end
-%% Write msd to file (for python)
-to_write = cell2mat(cellfun(@(x) x(1:num_Frames), d, 'UniformOutput', false));
-dlmwrite('msd_matlab.csv', to_write);
-%% load python data
-python_msd = dlmread('msd_python.csv');
-sz = size(python_msd);
-d_python = mat2cell(python_msd, sz(1), ones(1, sz(2)));
-t_cell_python = cellfun(@(x) linspace(timestep, length(x)*timestep, length(x))', ...
-                    d_python, 'UniformOutput', false);
-%% Fit MSD = 4Dt^a
-clear a;
-clear D;
-clear d_fit;
-clear t_fit;
-d_fit = d;
-t_fit = t_cell;
-fo = fitoptions('Method','NonlinearLeastSquares',...
-               'Lower',[0 0],...
-               'Upper',[Inf Inf],...
-               'StartPoint',[0.15 1]);
-ft = fittype('4*D*x^a', 'options', fo);
-D = zeros(1,length(d_fit));
-a = zeros(1,length(d_fit));
-for i = 1:length(d_fit)
-    f = fit(t_fit{i}(1:numFramesFit),d_fit{i}(1:numFramesFit), ft);
-    D(i) = f.D;
-    a(i) = f.a;
-%     figure(1);
-%     plot(f, t_fit{i}(1:numFramesFit),d_fit{i}(1:numFramesFit));
-%     pause()
-end
-close all
-figure(1); 
-hold on;
-mean(D((a>0.9)&(a<1.2)))
-nanmean(D((a>0.9)&(a<1.2)))
-plot(a, D, 'b.');
-% axis([0 2 0 1])
-
-%% 
-%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% Off Rate %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%% 
-%load feature finding workspace
-cd Feature_finding/
-load MT_1_Feat_Size_3.mat
-timestep = 2; %(time step in seconds)
-numBins = 121;
-data = histcounts(MT(:, 7), numBins);
-fitData = data/max(data);
-fitData = fitData(1:numBins);
-fitTimes = 0:timestep:((length(fitData)-1)*timestep);
-figure; hold on;
-plot(fitTimes, fitData);
-x = fit_offRate(fitTimes, fitData)
-cd ..
