@@ -17,3 +17,5 @@ Thumbs.db
 *.asv
 *.swp
 .DS_Store
+.*
+SPT.sublime-workspace
