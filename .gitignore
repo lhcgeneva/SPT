@@ -19,3 +19,7 @@ Thumbs.db
 .DS_Store
 .*
 SPT.sublime-workspace
+sample_data
+*.m~
+*.mlx
+*.ipynb

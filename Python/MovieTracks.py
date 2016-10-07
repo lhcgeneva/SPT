@@ -2,9 +2,9 @@
 from IPython.core.debugger import Tracer
 from itertools import repeat
 from math import ceil
-from matplotlib.pyplot import figure, imshow, savefig, subplots, close, show, ioff
+from matplotlib.pyplot import close, figure, imshow, ioff, savefig, show, subplots, text
 from multiprocessing import Pool
-from numpy import arange, c_, histogram, linspace, log10, mean, polyfit, sum, transpose, zeros
+from numpy import arange, c_, exp, histogram, linspace, log10, mean, polyfit, random, sum, transpose, zeros
 from pandas import concat, DataFrame, read_csv
 from pims import ImageSequence
 from pims_nd2 import ND2_Reader
@@ -233,6 +233,7 @@ class DiffusionFitter(ParticleFinder):
     def plot_msd(self):
         self.set_fig_style()
         fig, ax = subplots()
+        fig.suptitle('MSD vs lag time', fontsize=20)
         ax.plot(self.im.index, self.im, 'k-', alpha=0.4)
         ax.set(ylabel='$\Delta$ $r^2$ [$\mu$m$^2$]',
                xlabel='lag time $t$', ylim=[0.001, 10])
@@ -264,11 +265,17 @@ class OffRateFitter(ParticleFinder):
         self.fitTimes = arange(0, len(self.partCount)*self.timestep,
                                self.timestep)
 
-    def fit_offRate(self):
+    def fit_offRate(self, variant=1):
         '''
         Fit differential equation to data by solving with odeint and 
-        using fmin to parameters that best fit time/intensity data
+        using fmin to parameters that best fit time/intensity data or 
+        by using optimize.curve_fit. Different variants have use 
+        different free parameters.
         '''
+        ############## Variant 1 ######################################
+        # fits differential equation to data, free parameters
+        # kOff, Nss, kPh, assumes infinite cytoplasmic pool
+
         def dy_dt(y, t, kOff, Nss, kPh):
             # Calculates derivative for known y and params
             return kOff*Nss-(kOff+kPh)*y
@@ -280,24 +287,120 @@ class OffRateFitter(ParticleFinder):
             y = integrate.odeint(dy_dt, params[1], fitTimes,
                 args=(params[0], params[1], params[2]))
             # Get y-values at the times needed to compare with data
-            # Tracer()()
             return sum((transpose(y)-fitData)**2)
         # Set reasonable starting values for optimization
         kOffStart, NssStart, kPhStart = 0.01, 100, 0.01
         # Optimize objFunc to find optimal kOffStart, NssStart, kPhStart
         x = optimize.fmin(objFunc, [kOffStart, NssStart, kPhStart],
                           args=(self.fitTimes, self.partCount))
-        self.kOff, self.Nss, self.kPh = (x[0], x[1], x[2])
+        self.kOffVar1, self.NssVar1, self.kPhVar1 = (x[0], x[1], x[2])
         # Get solution using final parameter set determined by fmin
-        self.fitSol = integrate.odeint(dy_dt, self.Nss, self.fitTimes,
-                                       args=(self.kOff, self.Nss, self.kPh))
-        # Do plot if needed
-        if self.showFigs: self.plot_offRateFit()
+        self.fitSolVar1 = integrate.odeint(dy_dt, self.NssVar1, self.fitTimes,
+                                       args=(self.kOffVar1, self.NssVar1, self.kPhVar1))
 
-    def plot_offRateFit(self):
+        ############### Variant 2 ######################################
+        # fits solution of DE to data, assuming Nss=N(0) and
+        # Nss_bleach=N(end), only one free parameter: koff
+
+        def exact_solution(count0, countInf):
+            def curried_exact_solution(times, koff):
+                return ((count0 - countInf) * 
+                        exp(-koff*count0/countInf*times) + countInf)
+            return curried_exact_solution
+        popt, pcov = optimize.curve_fit(exact_solution(self.partCount[0],
+                                                       self.partCount[-1]),
+                                        self.fitTimes, self.partCount)
+        self.kOffVar2 = popt[0]
+        func = exact_solution(self.partCount[0], self.partCount[-1])
+        self.fitSolVar2 = [func(t, popt[0]) for t in self.fitTimes]
+
+        ############## Variant 3 ######################################
+        # fits solution of DE to data, fitting N(0), N(Inf) and koff,
+        # therefore being equivalent to variant=1
+
+        def exact_solution2(times, koff, count0, countInf):
+            return ((count0 - countInf) * 
+                    exp(-koff*count0/countInf*times) + countInf)
+        popt, pcov = optimize.curve_fit(exact_solution2, self.fitTimes, self.partCount)
+        self.kOffVar3 = popt[0]
+        self.fitSolVar3 = [exact_solution2(t, popt[0], popt[1], popt[2]) for t in self.fitTimes]
+
+        ############## Variant 4 ######################################
+        # fits solution of DE to data, fitting off rate and N(Inf),
+        # leaving N(0) fixed at experimental value
+
+        def exact_solution(count0):
+            def curried_exact_solution(times, koff, countInf):
+                return ((count0 - countInf) * 
+                        exp(-koff*count0/countInf*times) + countInf)
+            return curried_exact_solution
+        popt, pcov = optimize.curve_fit(exact_solution(self.partCount[0]),
+                                        self.fitTimes, self.partCount)
+        self.kOffVar4 = popt[0]
+        func = exact_solution(self.partCount[0])
+        self.fitSolVar4 = [func(t, popt[0], popt[1]) for t in self.fitTimes]
+
+        ############## Variant 5 (according to supplement Robin et al. 2014)
+        # Includes cytoplasmic depletion, fixes N(0). N corresponds to R, 
+        # Y corresponds to cytoplasmic volume
+
+        def exact_solution(count0):
+            def curried_exact_solution(times, r1, r2, kPh):
+                return (count0 * ((kPh + r2) / (r2 - r1) * exp(r1 * times)+
+                        (kPh + r1) / (r1 - r2) * exp(r2 * times)))
+            return curried_exact_solution
+        popt, pcov = optimize.curve_fit(exact_solution(self.partCount[0]),
+                                        self.fitTimes, self.partCount,
+                                        [-0.1, -0.2, -0.3], maxfev=10000)
+        self.kPhVar5 = popt[2]
+        self.kOnVar5 = (popt[0] * popt[1]) / self.kPhVar5
+        self.kOffVar5 = -(popt[0] + popt[1]) - (self.kOnVar5 + self.kPhVar5)
+        func = exact_solution(self.partCount[0])
+        self.fitSolVar5 = [func(t, popt[0], popt[1], popt[2]) for t in self.fitTimes]
+
+        if self.showFigs: 
+            self.plot_offRateFit(variant=1)
+            self.plot_offRateFit(variant=2)
+            self.plot_offRateFit(variant=3)
+            self.plot_offRateFit(variant=4)
+            self.plot_offRateFit(variant=5)
+
+    def synthetic_offRate_data(self, kon, kOff, kPh, endtime):
+        # Derivative
+        def dy_dt(y, t):
+            R = y[0]
+            Y = y[1]
+            f0 = kon*Y - (kOff+kPh)*R
+            f1 = -kon*Y + kOff*R
+            return[f0, f1]
+        # Initial conditions and time grid
+        R0 = 300
+        Y0 = kOff/kon*R0
+        y0 = [R0, Y0]
+        self.fitTimes = arange(0, endtime, self.timestep)
+        # Solve ode system
+        soln = integrate.odeint(dy_dt, y0, self.fitTimes)
+        self.partCount = soln[:, 0]
+        self.cytoCount = soln[:, 0]
+        # Add noise to solution
+        self.partCount = (self.partCount + 0.05*R0*
+                                    random.rand(self.partCount.size))
+
+    def plot_offRateFit(self, variant=1):
         self.set_fig_style()
         fig, ax = subplots()
-        ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSol)
+        if variant == 1:
+            ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSolVar1) 
+        elif variant == 2:
+            ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSolVar2)
+        elif variant == 3:
+            ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSolVar3)
+        elif variant == 4:
+            ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSolVar4)
+        elif variant == 5:
+            ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSolVar5)
+        else:
+            print('Variant ' + str(variant) + ' does not exist.')
         ax.set(ylabel='# particles', xlabel='t [s]')   
         if self.saveFigs:
             savefig(self.stackPath + '_offRateFit.pdf', bbox_inches='tight')
