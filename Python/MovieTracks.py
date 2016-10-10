@@ -2,7 +2,7 @@
 from IPython.core.debugger import Tracer
 from itertools import repeat
 from math import ceil
-from matplotlib.pyplot import close, figure, imshow, ioff, savefig, show, subplots, text
+from matplotlib.pyplot import close, figure, imshow, ioff, savefig, show, subplots
 from multiprocessing import Pool
 from numpy import arange, c_, exp, histogram, linspace, log10, mean, polyfit, random, sum, transpose, zeros
 from pandas import concat, DataFrame, read_csv
