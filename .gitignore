@@ -1,4 +1,5 @@
 *.fig
+*.csv
 *.txt
 *.mat
 *.pdf

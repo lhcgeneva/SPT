@@ -38,26 +38,24 @@ Created with Jupyter, delivered by Fastly, rendered by Rackspace.
 </footer>''')
 
 
-# # Tests for particle tracking and off rate fitting
+# # Test for extracting diffusion coefficients via  particle tracking
 # 
-# In order to test changes made to particle tracking and off rate fitting this document can serve as a standard. Sample data for diffusion contains PAR-6 measurements, off rate data is taken from PAR-2. Also compare to Matlab's testing file. Both should give roughly the same outputs.
+# In order to test changes made to particle tracking and off rate fitting this document can serve as a standard. Sample data for diffusion contains PAR-6 measurements. Also compare to Matlab's testing file. Both should give roughly the same outputs.
 
-# In[1]:
+# In[2]:
 
 import time
 import sys
 from matplotlib import pyplot as plt
 sys.path.append('/Users/hubatsl/Desktop/SPT/Us/SPT/Python')
-from MovieTracks import DiffusionFitter, OffRateFitter
+from MovieTracks import DiffusionFitter, OffRateFitter, ParameterSampler
 get_ipython().magic('matplotlib inline')
 
 
-# # Extracting diffusion coefficients for indiv. particles.
 # First, we test the particle tracking by running on the folder specified in 'fol'. 
 # After creating an instance of DiffusionFitter (d), d.analyze() is run to find features and link tracks.
-# 
 
-# In[ ]:
+# In[3]:
 
 fol = '/Users/hubatsl/Desktop/SPT/Us/SPT/sample_data/16_07_20_PAR6_2/fov1/'
 d = DiffusionFitter(fol, 300, parallel=True, pixelSize=0.120, timestep=0.033,
@@ -70,7 +68,7 @@ print('Test took ' + str(t) + ' seconds, normal time ~23 s.')
 
 # **Plot calibration of feature finding for one frame (1st frame by default).**
 
-# In[ ]:
+# In[4]:
 
 d.showFigs = True
 d.plot_calibration()
@@ -82,7 +80,7 @@ else:
 
 # **Plot trajectories that are longer than treshold set by user.**
 
-# In[ ]:
+# In[5]:
 
 d.plot_trajectories()
 if d.trajectories.particle.unique().size == 117:
@@ -93,19 +91,20 @@ else:
 
 # **Plot mean square displacement over time.**
 
-# In[ ]:
+# In[6]:
 
 d.plot_msd()
 
 
 # **Finally, fit $\langle x \rangle = 4Dt^\alpha$ and plot D vs $\alpha$**
 
-# In[ ]:
+# In[7]:
 
 d.plot_diffusion_vs_alpha()
+d.D_restricted
 
 
-# In[ ]:
+# In[8]:
 
 if d.D.mean()==0.12002050139512239:
     print('Mean d is ' + str(d.D.mean()) + ', as expected.')
@@ -113,56 +112,9 @@ else:
     print('Mean d is ' + str(d.D.mean()) + ', not as expected 0.12002050139512239.')
 
 
-# # Get off rate according to Robin et al. 2014
+# In[9]:
 
-# In[2]:
+import numpy
+n, bins, patches = plt.hist(part_count.asobject, range(80, 500, 10))
+plt.show()
 
-# fol = '/Users/hubatsl/Desktop/SPT/Us/SPT/sample_data/16_05_09_TH120_PAR2/fov3/'
-fol = '/Users/hubatsl/Desktop/SPT/Us/OffRate/16_04_11_KK1248xTH110/fov2'
-o = OffRateFitter(fol, 40, parallel=True, pixelSize=0.12, timestep=2,
-                    saveFigs=True, showFigs=True, autoMetaDataExtract=False)
-s = OffRateFitter(fol, 40, parallel=True, pixelSize=0.12, timestep=2,
-                    saveFigs=True, showFigs=True, autoMetaDataExtract=False)
-t0 = time.time()
-o.analyze()
-t = time.time() - t0
-print('time elapsed: '+ str(t)+'s, should not be substantially bigger than 2 s.')
-
-
-# Fit bleaching behavior of embryo to $$\frac{dy}{dt}=k_{off}N_{ss}-(k_{off}+k_{bleach})N$$ to extract bleaching and off-rate.
-
-# In[27]:
-
-# o.showFigs = True
-# o.plot_calibration(1)
-# o.plot_calibration(-1)
-s.synthetic_offRate_data(0.0001, 0.007, 0.014, 1000)
-s.fit_offRate()
-
-
-# **Off Rate and Bleaching rate as well as Off Rate calculated by fixing start and end point.**
-
-# In[28]:
-
-# o.kOffVar1, o.kOffVar2, o.kOffVar3, o.kOffVar4, o.kOffVar5
-s.kOffVar1, s.kOffVar2, s.kOffVar3, s.kOffVar4, s.kOffVar5
-
-
-# In[29]:
-
-s.kPhVar1, s.kPhVar5
-
-
-# In[ ]:
-
-# o.synthetic_offRate_data(0.001, 0.007, 0.007, 1000)
-plt.plot(o.synthetic_t, o.synthetic_partCount)
-
-
-# In[ ]:
-
-
-# o.synthetic_partCount.size
-
-
-# The rates should be approximately 0.00358 and 0.0102.
