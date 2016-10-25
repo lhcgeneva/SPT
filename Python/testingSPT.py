@@ -57,7 +57,7 @@ get_ipython().magic('matplotlib inline')
 
 # In[3]:
 
-fol = '/Users/hubatsl/Desktop/SPT/Us/SPT/sample_data/16_07_20_PAR6_2/fov1/'
+fol = '/Users/hubatsl/Desktop/SPT/Us/SPT/sample_data/16_07_20_PAR6_2/fov1_16bit/'
 d = DiffusionFitter(fol, 300, parallel=True, pixelSize=0.120, timestep=0.033,
                     saveFigs=False, showFigs=False, autoMetaDataExtract=False)
 t0 = time.time()
@@ -66,9 +66,14 @@ t = time.time() - t0
 print('Test took ' + str(t) + ' seconds, normal time ~23 s.')
 
 
+# In[4]:
+
+d.frames
+
+
 # **Plot calibration of feature finding for one frame (1st frame by default).**
 
-# In[4]:
+# In[5]:
 
 d.showFigs = True
 d.plot_calibration()
@@ -80,7 +85,7 @@ else:
 
 # **Plot trajectories that are longer than treshold set by user.**
 
-# In[5]:
+# In[6]:
 
 d.plot_trajectories()
 if d.trajectories.particle.unique().size == 117:
@@ -91,20 +96,45 @@ else:
 
 # **Plot mean square displacement over time.**
 
-# In[6]:
+# In[7]:
 
 d.plot_msd()
+f1, ax = plt.subplots()
+ax.plot(d.im.index, d.im.iloc[:, 2::10])
+ax.set_xscale('log');
+ax.set_yscale('log');
+plt.show()
+d.D[2::10]
+#Plot low value msds!
+
+
+# In[8]:
+
+import numpy
+f1, ax = plt.subplots()
+ax.plot(d.im.index, d.im.iloc[:, numpy.logical_and(d.a<1.2,d.a>1)[::2]])
+ax.set_xscale('log');
+ax.set_yscale('log');
+plt.show()
+d.D[2::10]
+ax.plot(d.im.index, d.im.iloc[:, ((d.a<1.2)&(d.a>1))[::2]])
+#Check logical and!
+
+
+# In[9]:
+
+numpy.sqrt(0.2*4)/0.124
 
 
 # **Finally, fit $\langle x \rangle = 4Dt^\alpha$ and plot D vs $\alpha$**
 
-# In[7]:
+# In[10]:
 
 d.plot_diffusion_vs_alpha()
 d.D_restricted
 
 
-# In[8]:
+# In[11]:
 
 if d.D.mean()==0.12002050139512239:
     print('Mean d is ' + str(d.D.mean()) + ', as expected.')
@@ -112,9 +142,53 @@ else:
     print('Mean d is ' + str(d.D.mean()) + ', not as expected 0.12002050139512239.')
 
 
-# In[9]:
+# In[12]:
 
 import numpy
+part_count = d.trajectories['particle'].value_counts()
 n, bins, patches = plt.hist(part_count.asobject, range(80, 500, 10))
 plt.show()
+
+
+# ** Try out reading metadata and images from .stk file **
+
+# In[13]:
+
+fol = '/Users/hubatsl/Desktop/16_07_20_PAR6-PAR6_KK902Viability/PAR6_PAR6_DoubleLine/16_07_20_PAR6_1_50p_33ms.stk'
+d = DiffusionFitter(fol, 300, parallel=True, pixelSize=0.120, autoMetaDataExtract=True)
+t0 = time.time()
+d.analyze()
+t = time.time() - t0
+d.showFigs = True
+d.plot_calibration()
+if d.features.size == 571230:
+    print('Total number of features ' + str(d.features.size) + ', as expected.')
+else:
+    print('Total number of features ' + str(d.features.size) + ', not as expected 571230.')
+    d.plot_trajectories()
+if d.trajectories.particle.unique().size == 117:
+    print('Total number of features ' + str(d.trajectories.particle.unique().size) + ', as expected.')
+else:
+    print('Total number of features ' + str(d.trajectories.particle.unique().size) + ', not as expected 117.')
+d.plot_msd()
+f1, ax = plt.subplots()
+ax.plot(d.im.index, d.im.iloc[:, 2::10])
+ax.set_xscale('log');
+ax.set_yscale('log');
+plt.show()
+d.D[2::10]    
+d.plot_diffusion_vs_alpha()
+d.D_restricted
+if d.D.mean()==0.12002050139512239:
+    print('Mean d is ' + str(d.D.mean()) + ', as expected.')
+else:
+    print('Mean d is ' + str(d.D.mean()) + ', not as expected 0.12002050139512239.')
+part_count = d.trajectories['particle'].value_counts()
+n, bins, patches = plt.hist(part_count.asobject, range(80, 500, 10))
+plt.show()
+
+
+# In[ ]:
+
+
 

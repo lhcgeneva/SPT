@@ -13,13 +13,17 @@
 % When adding new files or initializing a new folder with movies, the following 
 % stores some metadata that's important for the tracking in a file in the same 
 % folder called 'log_file.txt'
-% 
-% frame_interval = [0.033; 0.033; 0.033; 0.033; 0.033]; % Frame interval 
-% in s pixel_size = [0.12; 0.12; 0.12; 0.12; 0.12]; % pixel size in microns masscut 
-% = [330; 350; 350; 350; 320]; featsize = [3; 3; 3; 3; 3]; maxdisp = [5; 5; 5; 
-% 5; 5]; memory = [7; 7; 7; 7; 7]; min_track_length = [80; 80; 80; 80; 80]; log_file 
-% = table(frame_interval, pixel_size, featsize, maxdisp, masscut, ... memory, 
-% min_track_length); writetable(log_file);.
+
+frame_interval = [0.033; 0.033; 0.033; 0.033; 0.033]; % Frame interval in s 
+pixel_size = [0.12; 0.12; 0.12; 0.12; 0.12]; % pixel size in microns 
+masscut = [330; 350; 350; 350; 320]; 
+featsize = [3; 3; 3; 3; 3]; 
+maxdisp = [5; 5; 5; 5; 5]; 
+memory = [7; 7; 7; 7; 7]; 
+min_track_length = [80; 80; 80; 80; 80]; 
+log_file = table(frame_interval, pixel_size, featsize, maxdisp, masscut, ...
+                 memory, min_track_length); 
+writetable(log_file);
 %% Find particles
 
 logfile = readtable('log_file.txt');
@@ -30,7 +34,7 @@ end
 % Use for testing individual movies, make sure all parameters are correct, then 
 % run this section
 
-fovn = 12;
+fovn = 1;
 featsize = nan(fovn, 1);
 frame_interval = nan(fovn, 1);
 masscut = nan(fovn, 1);
@@ -38,10 +42,10 @@ pixel_size = nan(fovn, 1);
 maxdisp = nan(fovn, 1);
 min_track_length = nan(fovn, 1);
 memory = nan(fovn, 1);
-featsize(end) = 3;
+featsize(end) =3;
 frame_interval(end) = 0.040;
-masscut(end) = 200;
-pixel_size(end) = 0.124;% SB: 0.1049;
+masscut(end) = 650;
+pixel_size(end) = 0.1049;
 % Tracking parameters
 maxdisp(end) = 5;
 min_track_length(end) = 80;
@@ -103,8 +107,7 @@ for j = 1:length(frame_index_cell)
 end
 
 % Get step distance between neighboring frames
-distances = cellfun(@(x) sqrt(diff(x(:, 1)).^2 + diff(x(:, 2)).^2),...
-                    x_y_cell, 'UniformOutput', false);
+distances = cellfun(@(x) (sqrt(diff(x(:, 1)).^2+diff(x(:, 2)).^2)), x_y_cell, 'UniformOutput', false);
 
 % Plot tracks, reversed y-axis (to fit image)
 figure; hold on;
@@ -117,6 +120,7 @@ title('Tracks superimposed on embryo', 'FontSize', 18);
 xlabel('x ($\mu m$)', 'FontSize', 24, 'Interpreter', 'Latex');
 ylabel('y ($\mu m$)', 'FontSize', 24, 'Interpreter', 'Latex');
 %% Calculate msd from tracks
+
 msd  = cell(1, length(c));
 stepsize = cell(1, length(c));
 for j = 1:length(x_y_cell)
@@ -136,7 +140,21 @@ end
 stepsize_rows = cellfun(@(x) x', stepsize, 'UniformOutput', false);
 stepsize_mat = [stepsize_rows{:}];
 steps_filter = stepsize_mat(stepsize_mat<0.1);
-% Plot all msd over time
+r=[];ad=[];
+for i=1: length(x_y_cell)
+    for j=1:length(x_y_cell{i})-1
+%         if sum(isnan(x_y_cell{i}(j+1,:)))==0 %sum(isnan(x_y_cell{i}(j,:)))==0 && 
+        x1=x_y_cell{i}(j,1);
+        x2=x_y_cell{i}(j+1,1);
+        y1=x_y_cell{i}(j,2);
+        y2=x_y_cell{i}(j+1,2);
+        temp=sqrt((x2-x1)^2+(y2-y1)^2);
+        r=[temp;r];
+%         end
+    end
+end
+%% Plot all msd over time
+
 figure; hold on;
 for i = 1:length(c)
     plot(msd{i}, 'b');
@@ -149,6 +167,7 @@ ylabel('\langle x^2 \rangle [um^2]', 'FontSize', 24);
 %% 
 % Fitting $\langle x^2 \rangle = 4\cdot D \cdot t^\alpha$, using a linear 
 % fit in log-log space, in order to get best fitting performance/accuracy.
+
 numFramesFit = 10;
 D = zeros(1,length(msd));
 a = zeros(1,length(msd));
@@ -164,7 +183,6 @@ scatter(a, D);
 title('Anomalous Diffusion', 'FontSize', 18);
 xlabel('\alpha', 'FontSize', 24);
 ylabel('$D [\frac{\mu ^2}{s}]$','Interpreter','LaTex', 'FontSize', 24);
-% axis([0 1.5 0 0.01]);
 mean(D(a>0.9 & a<1.2))
 %% Off Rate
 

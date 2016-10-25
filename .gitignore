@@ -24,3 +24,4 @@ sample_data
 *.m~
 *.mlx
 *.ipynb
+offRate_Simulation_*
