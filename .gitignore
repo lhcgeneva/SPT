@@ -24,5 +24,4 @@ SPT.sublime-workspace
 sample_data
 *.m~
 *.mlx
-*.ipynb
 offRate_Simulation_*
