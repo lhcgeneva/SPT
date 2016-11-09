@@ -7,7 +7,7 @@ function getparticletracks(timestep,numFrames,fovn)
 time = 0:timestep:numFrames*timestep;
 save(['fov', num2str(fovn), '_times.mat'], 'time');
 
-pixelSize = 0.1049;
+pixelSize = 0.12;
 numFramesFit = 10;
 basepath=[pwd, '/'];
 featsize = 3;
@@ -16,7 +16,7 @@ barrg = 50;
 barcc = 1;
 IdivRg = 0;
 Imin = 10;
-masscut = 230;
+masscut = 730;
 field = 2;
 frame = 1;
 % Prerun, so parameters can be adjusted if necessary
