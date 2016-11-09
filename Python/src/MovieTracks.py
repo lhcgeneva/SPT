@@ -1,41 +1,44 @@
-#Author: Lars Hubatsch, object oriented wrapper for trackpy
+# Author: Lars Hubatsch, object oriented wrapper for trackpy
 from IPython.core.debugger import Tracer
 from itertools import repeat, product
 from math import ceil
 from matplotlib.pyplot import (close, figure, imshow, ioff, savefig, show,
-                              subplots)
+                               subplots)
 from multiprocessing import Pool
 from numpy import (arange, c_, diff, exp, histogram, linspace, log10, mean,
                    polyfit, random, sum, transpose, zeros)
-from pandas import concat, DataFrame, read_csv
+from pandas import concat, DataFrame
 from pims import ImageSequence
 from pims_nd2 import ND2_Reader
-from os import chdir, path, walk, makedirs
+from os import chdir, path, makedirs
 from re import findall, split
 from scipy import integrate, optimize
 from sys import exit
 from tifffile import imsave, TiffFile
 
 import seaborn as sns
-import shutil
 import trackpy as tp
 
 '''
 TO DO:
-Write tests
+Separate arguments for DiffusionFitter/OffRateFitter/ParticleFinder
 '''
 
 
 class ParticleFinder(object):
+
     '''
     Wraps trackpy so properties of individual movies can be conveniently
     accessed through class interface. Every movie becomes one instance of the
-    class. ParticleFinder is a generic interface, for off rates or 
+    class. ParticleFinder is a generic interface, for off rates or
     diffusion rates use OffRateFitter or DiffusionFitter
     '''
-    def __init__(self, filePath=None, threshold=40, autoMetaDataExtract=True,
-                 dist=5, featSize=3, memory=7, no_workers=8, parallel=True,
-                 pixelSize=0.120, saveFigs=False, showFigs=False, timestep=None):
+
+    def __init__(self, filePath=None, threshold=40,
+                 autoMetaDataExtract=True, dist=5, featSize=3, memory=7,
+                 minTrackLength=80, no_workers=8, parallel=True,
+                 pixelSize=0.120, saveFigs=False, showFigs=False,
+                 startFrame=0, timestep=None):
         self.no_workers = no_workers
         self.parallel = parallel
         self.saveFigs = saveFigs
@@ -45,8 +48,10 @@ class ParticleFinder(object):
             self.autoMetaDataExtract = autoMetaDataExtract
             self.dist = dist
             self.featSize = featSize
+            self.minTrackLength = minTrackLength
+            self.startFrame = startFrame
             self.stackPath = filePath
-            self.basePath = split('/', self.stackPath[::-1],1)[1][::-1] + '/'
+            self.basePath = split('/', self.stackPath[::-1], 1)[1][::-1] + '/'
             self.stackName = self.stackPath.split('/')[-1].split('.')[0]
             self.memory = memory
             self.pixelSize = pixelSize
@@ -54,7 +59,7 @@ class ParticleFinder(object):
             # Check whether to extract frame intervals automatically
             if autoMetaDataExtract and '.nd2' in self.stackPath:
                 frames = ND2_Reader(self.stackPath)
-                self.timestep = (frames[-1].metadata.get('t_ms', None)/
+                self.timestep = (frames[-1].metadata.get('t_ms', None) /
                                  (len(frames)-1))
                 frames.close()
             elif autoMetaDataExtract and '.stk' in self.stackPath:
@@ -64,14 +69,15 @@ class ParticleFinder(object):
                 idx2 = string.find('ms')
                 exp_string = string[idx1:idx2+4]
                 self.exposure = float(findall('\d+', exp_string)[0])/1000
-                time_created = tif.pages[0].uic2tag.time_created/1000 #in seconds
+                time_created = tif.pages[0].uic2tag.time_created/1000  # in sec
                 self.timestep = mean(diff(time_created))
-                if timestep is not None: print('Input time step ignored.')
-            elif ((autoMetaDataExtract and '.nd2' not in self.stackPath) or 
-                  self.timestep==None):
-                print(''''Metadata extraction currently only supported for 
-                          .nd2 and .stk files. Please provide the timestep as 
-                          optional argument to ParticleFinder.''')
+                if timestep is not None:
+                    print('Input time step ignored.')
+            elif ((autoMetaDataExtract and '.nd2' not in self.stackPath) or
+                    self.timestep is None):
+                print(''''Metadata extraction currently only supported for
+                           .nd2 and .stk files. Please provide the timestep as
+                           optional argument to ParticleFinder.''')
                 exit()
             # If file format of stack is .nd2 read and write stack
             if 'nd2' in self.stackPath or '.stk' in self.stackPath:
@@ -79,13 +85,15 @@ class ParticleFinder(object):
             # Read in image sequence from newly created file
             self.frames = ImageSequence(self.basePath+self.stackName+'/*.tif',
                                         as_grey=True)
+            self.frames = self.frames[self.startFrame:]
 
     def analyze(self):
         '''
         Convenience function to run analysis in one go with
         graphs on or off depending on showFigs
         '''
-        if self.showFigs: self.plot_calibration()
+        if self.showFigs:
+            self.plot_calibration()
         self.find_feats()
 
     def find_feats(self):
@@ -114,9 +122,9 @@ class ParticleFinder(object):
             pool.join()
         else:
             self.features = tp.batch(self.frames[:], self.featSize,
-                                   minmass=self.threshold, invert=False)
+                                     minmass=self.threshold, invert=False)
 
-    def plot_calibration(self, calibrationFrame=1):
+    def plot_calibration(self, calibrationFrame=0):
         self.set_fig_style()
         imshow(self.frames[calibrationFrame])
         f = tp.locate(self.frames[calibrationFrame], self.featSize,
@@ -126,33 +134,18 @@ class ParticleFinder(object):
             fig1 = fig.get_figure()
             fig1.savefig(self.stackPath + 'Particle_Calibration' + '.pdf',
                          bbox_inches='tight')
-        if self.showFigs: show()
+        if self.showFigs:
+            show()
         close()
-    
-    def read_metadata(self):
-        '''
-        From text file, doesn't work because ND2_Reader crashes a lot, a least in
-        shell
-        stack = ND2_Reader(self.stackPath)
-        metaDataSplit = stack.metadata_text.split()
-        ind = metaDataSplit.index('Exposure:')
-        self.Exposure = metaDataSplit[ind+1]
-        '''
-        pass
 
-    def save_summary_to_database(self):
+    def save_summary_input(self):
         data = {'dist': self.dist, 'featSize': self.featSize,
                 'memory': self.memory, 'no_workers': self.no_workers,
                 'parallel': self.parallel, 'pixelSize': self.pixelSize,
                 'timestep': self.threshold, 'timestep': self.timestep,
                 'path': self.stackPath}
-        if path.isfile(self.basePath + 'database.csv'):
-            read_frame = read_csv(self.basePath + 'database.csv', index_col=0)
-            frame_to_write = DataFrame(data, index=[read_frame.shape[0]])
-            frame_to_write = concat([read_frame, frame_to_write])
-        else:
-            frame_to_write = DataFrame(data, index=[0])
-        frame_to_write.to_csv(self.basePath + 'database.csv')
+        frame_to_write = DataFrame(data, index=[0])
+        frame_to_write.to_csv(self.basePath + 'summary_secondhalf.csv')
         print('Summary saved.')
 
     def write_images(self):
@@ -161,27 +154,21 @@ class ParticleFinder(object):
             dir_path = path.dirname(path.realpath(__file__))
             chdir(self.basePath+self.stackName)
             if '.stk' in self.stackPath:
-                frames =  TiffFile(self.stackPath).asarray()
-            else:       
+                frames = TiffFile(self.stackPath).asarray()
+            else:
                 frames = ND2_Reader(self.stackPath)
             for i in range(len(frames)):
                 imsave(self.stackName+'_'+str(i)+'.tif', frames[i])
             chdir(dir_path)
-        # else:
-        #     print('Directory '+self.basePath+self.stackName+' already exists.')
-        #     fileDelete_yn = input('Delete files and write images? [y/n] ')
-        #     if fileDelete_yn == 'y':
-        #         shutil.rmtree(self.basePath+self.stackName)
-        #         makedirs(self.basePath+self.stackName)
-        #     else:
-        #         return
-        
+
     def set_fig_style(self):
         ioff()
         sns.set_context("poster")
         sns.set_style("dark")
 
+
 class DiffusionFitter(ParticleFinder):
+
     '''
     Example call for debugging:
     d = DiffusionFitter('/Users/hubatsl/Desktop/DataSantaBarbara/
@@ -190,6 +177,7 @@ class DiffusionFitter(ParticleFinder):
 
     Extends ParticleFinder to implement Off rate calculation
     '''
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -197,9 +185,10 @@ class DiffusionFitter(ParticleFinder):
         super().analyze()
         self.link_feats()
         self.analyze_tracks()
-        if self.showFigs: self.plot_trajectories()
-        if self.showFigs: self.plot_msd()
-        if self.showFigs: self.plot_diffusion_vs_alpha()
+        if self.showFigs:
+            self.plot_trajectories()
+            self.plot_msd()
+            self.plot_diffusion_vs_alpha()
         self.save_output()
 
     def analyze_tracks(self):
@@ -208,7 +197,7 @@ class DiffusionFitter(ParticleFinder):
         numFrames = 10
         imAsNumpyArray = self.im.as_matrix()
         self.time = linspace(self.timestep,
-                                self.timestep * numFrames, numFrames)
+                             self.timestep * numFrames, numFrames)
         DA = zeros([numParticles, 2])
         for j in range(0, numParticles):
             MSD = imAsNumpyArray[0:numFrames, j]
@@ -221,10 +210,10 @@ class DiffusionFitter(ParticleFinder):
     def link_feats(self):
         '''
         Link individual frames to build trajectories, filter out stubs shorter
-        than 80. Get Mean Square Displacement (msd)
+        than minTrackLength. Get Mean Square Displacement (msd)
         '''
         t = tp.link_df(self.features, self.dist, memory=self.memory)
-        self.trajectories = tp.filter_stubs(t, 80)
+        self.trajectories = tp.filter_stubs(t, self.minTrackLength)
         # Get msd microns per pixel = 100/285., frames per second = 24
         self.im = tp.imsd(self.trajectories, self.pixelSize, 1 / self.timestep)
 
@@ -234,11 +223,11 @@ class DiffusionFitter(ParticleFinder):
         self.set_fig_style()
         fig = figure()
         ax = fig.add_subplot(111)
-        # ax.plot(self.a, self.D, '.')
         ax.scatter(self.a, self.D, c=weights)
         if self.saveFigs:
             savefig(self.stackPath + 'Particle_D_a.pdf', bbox_inches='tight')
-        if self.showFigs: show()
+        if self.showFigs:
+            show()
         close()
 
     def plot_trajectories(self):
@@ -258,22 +247,26 @@ class DiffusionFitter(ParticleFinder):
         ax.set(ylabel='$\Delta$ $r^2$ [$\mu$m$^2$]',
                xlabel='lag time $t$', ylim=[0.001, 10])
         ax.set_xscale('log')
-        ax.set_yscale('log')        
+        ax.set_yscale('log')
         if self.saveFigs:
             savefig(self.stackPath + 'Particle_msd.pdf', bbox_inches='tight')
-        if self.showFigs: show()
+        if self.showFigs:
+            show()
         close()
 
     def save_output(self):
         columns = ['a', 'D']
         combinedNumpyArray = c_[self.a, self.D]
         d = DataFrame(data=combinedNumpyArray, columns=columns)
-        d.to_csv(self.stackPath + 'Particle_D_a.csv')
+        d.to_csv(self.stackPath + 'Particle_D_a_secondhalf.csv')
+
 
 class OffRateFitter(ParticleFinder):
+
     '''
     Extends ParticleFinder to implement Off rate calculation
     '''
+
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
@@ -281,36 +274,37 @@ class OffRateFitter(ParticleFinder):
         super().analyze()
         self.partCount, _ = histogram(self.features.frame,
                                       bins=self.features.frame.max()+1)
-        if self.autoMetaDataExtract and '.stk' in  self.stackPath:
+        if self.autoMetaDataExtract and '.stk' in self.stackPath:
             times_created = (TiffFile(self.stackPath).pages[0].
-                             uic2tag.time_created/1000) # in seconds
+                             uic2tag.time_created/1000)  # in seconds
             self.fitTimes = times_created-times_created[0]
-        else: self.fitTimes = arange(0, len(self.partCount)*self.timestep,
-                               self.timestep)
-        # self.fitTimes = arange(0, len(self.partCount)*self.timestep,
-        #                        self.timestep)
+        else:
+            self.fitTimes = arange(0, len(self.partCount)*self.timestep,
+                                   self.timestep)
 
     def fit_offRate(self, variants=[1, 2, 3, 4, 5, 6]):
         '''
-        Fit differential equation to data by solving with odeint and 
-        using fmin to parameters that best fit time/intensity data or 
-        by using optimize.curve_fit. Different variants have use 
+        Fit differential equation to data by solving with odeint and
+        using fmin to parameters that best fit time/intensity data or
+        by using optimize.curve_fit. Different variants have use
         different free parameters.
         '''
-        ############## Variant 1 ######################################
-        # fits differential equation to data, free parameters
-        # kOff, Nss, kPh, assumes infinite cytoplasmic pool
+
+        '''
+        Variant 1: fits differential equation to data, free parameters
+        kOff, Nss, kPh, assumes infinite cytoplasmic pool
+        '''
         if 1 in variants:
             def dy_dt(y, t, kOff, Nss, kPh):
                 # Calculates derivative for known y and params
                 return kOff*Nss-(kOff+kPh)*y
 
             def objFunc(params, fitTimes, fitData):
-                # Returns distance between solution of diff. equ. with 
+                # Returns distance between solution of diff. equ. with
                 # parameters params and the data fitData at times fitTimes
-                # Do integration of dy_dt using parameters params      
+                # Do integration of dy_dt using parameters params
                 y = integrate.odeint(dy_dt, params[1], fitTimes,
-                    args=(params[0], params[1], params[2]))
+                                     args=(params[0], params[1], params[2]))
                 # Get y-values at the times needed to compare with data
                 return sum((transpose(y)-fitData)**2)
             # Set reasonable starting values for optimization
@@ -322,15 +316,17 @@ class OffRateFitter(ParticleFinder):
             self.kOffVar1, self.NssVar1, self.kPhVar1 = (x[0], x[1], x[2])
             # Get solution using final parameter set determined by fmin
             self.fitSolVar1 = integrate.odeint(dy_dt, self.NssVar1,
-                                               self.fitTimes, 
+                                               self.fitTimes,
                                                args=(self.kOffVar1,
-                                                self.NssVar1, self.kPhVar1))
-        ############## Variant 2 ######################################
-        # fits solution of DE to data, fitting N(0), N(Inf) and koff,
-        # therefore being equivalent to variant=1
+                                                     self.NssVar1,
+                                                     self.kPhVar1))
+        '''
+        Variant 2: fits solution of DE to data, fitting N(0), N(Inf) and koff,
+        therefore being equivalent to variant=1
+        '''
         if 2 in variants:
             def exact_solution(times, koff, count0, countInf):
-                return ((count0 - countInf) * 
+                return ((count0 - countInf) *
                         exp(-koff*count0/countInf*times) + countInf)
             popt, pcov = optimize.curve_fit(exact_solution, self.fitTimes,
                                             self.partCount)
@@ -338,13 +334,14 @@ class OffRateFitter(ParticleFinder):
             self.fitSolVar2 = [exact_solution(t, popt[0], popt[1], popt[2])
                                for t in self.fitTimes]
 
-        ############### Variant 3 ######################################
-        # fits solution of DE to data, assuming Nss=N(0) and
-        # Nss_bleach=N(end), only one free parameter: koff
+        '''
+        Variant 3: fits solution of DE to data, assuming Nss=N(0) and
+        Nss_bleach=N(end), only one free parameter: koff
+        '''
         if 3 in variants:
             def exact_solution(count0, countInf):
                 def curried_exact_solution(times, koff):
-                    return ((count0 - countInf) * 
+                    return ((count0 - countInf) *
                             exp(-koff*count0/countInf*times) + countInf)
                 return curried_exact_solution
             popt, pcov = optimize.curve_fit(exact_solution(self.partCount[0],
@@ -354,50 +351,55 @@ class OffRateFitter(ParticleFinder):
             func = exact_solution(self.partCount[0], self.partCount[-1])
             self.fitSolVar3 = [func(t, popt[0]) for t in self.fitTimes]
 
-        ############## Variant 4 ######################################
-        # fits solution of DE to data, fitting off rate and N(Inf),
-        # leaving N(0) fixed at experimental value
+        '''
+        Variant 4: fits solution of DE to data, fitting off rate and N(Inf),
+        leaving N(0) fixed at experimental value
+        '''
         if 4 in variants:
             def exact_solution(count0):
                 def curried_exact_solution(times, koff, countInf):
-                    return ((count0 - countInf) * 
+                    return ((count0 - countInf) *
                             exp(-koff*count0/countInf*times) + countInf)
                 return curried_exact_solution
             popt, pcov = optimize.curve_fit(exact_solution(self.partCount[0]),
                                             self.fitTimes, self.partCount)
             self.kOffVar4 = popt[0]
             func = exact_solution(self.partCount[0])
-            self.fitSolVar4 = [func(t, popt[0], popt[1]) for t in self.fitTimes]
+            self.fitSolVar4 = [func(t, popt[0], popt[1])
+                               for t in self.fitTimes]
 
-        ############## Variant 5 (according to supplement Robin et al. 2014)
-        # Includes cytoplasmic depletion, fixes N(0). N corresponds to R, 
-        # Y corresponds to cytoplasmic volume
+        '''
+        Variant 5 (according to supplement Robin et al. 2014):
+        Includes cytoplasmic depletion, fixes N(0). N corresponds to R,
+        Y corresponds to cytoplasmic volume
+        '''
         if 5 in variants:
             def exact_solution(count0):
                 def curried_exact_solution(times, r1, r2, kPh):
-                    return (count0 * ((kPh + r2) / (r2 - r1) * exp(r1 * times)+
-                            (kPh + r1) / (r1 - r2) * exp(r2 * times)))
+                    return (count0 * ((kPh+r2) / (r2-r1) * exp(r1*times) +
+                            (kPh+r1) / (r1-r2) * exp(r2*times)))
                 return curried_exact_solution
             popt, pcov = optimize.curve_fit(exact_solution(self.partCount[0]),
                                             self.fitTimes, self.partCount,
                                             [-0.1, -0.2, -0.3], maxfev=10000)
             self.kPhVar5 = popt[2]
-            self.kOnVar5 = (popt[0] * popt[1]) / self.kPhVar5
-            self.kOffVar5 = -(popt[0] + popt[1]) - (self.kOnVar5 + self.kPhVar5)
+            self.kOnVar5 = (popt[0]*popt[1]) / self.kPhVar5
+            self.kOffVar5 = -(popt[0]+popt[1]) - (self.kOnVar5+self.kPhVar5)
             func = exact_solution(self.partCount[0])
-            self.fitSolVar5 = [func(t, popt[0], popt[1], popt[2]) 
+            self.fitSolVar5 = [func(t, popt[0], popt[1], popt[2])
                                for t in self.fitTimes]
 
-        ############ Variant 6 ########################################
-        # This tries to circumvent the error made by fixing the starting 
-        # condition to the first measurement. This point already has a 
-        # statistical error affiliated with it. Fixing it propagates this 
-        # error through the other parameters/the whole fit. Otherwise 
-        # equivalent to variant 5.
+        '''
+        Variant 6: This tries to circumvent the error made by fixing the
+        starting condition to the first measurement. This point already has a
+        statistical error affiliated with it. Fixing it propagates this
+        error through the other parameters/the whole fit. Otherwise
+        equivalent to variant 5.
+        '''
         if 6 in variants:
             def curried_exact_solution(times, r1, r2, kPh, count0):
-                return (count0 * ((kPh + r2) / (r2 - r1) * exp(r1 * times)+
-                        (kPh + r1) / (r1 - r2) * exp(r2 * times)))
+                return (count0 * ((kPh+r2) / (r2-r1) * exp(r1*times) +
+                        (kPh+r1) / (r1-r2) * exp(r2*times)))
             popt, pcov = optimize.curve_fit(curried_exact_solution,
                                             self.fitTimes, self.partCount,
                                             [-0.1, -0.2, -0.3, 200],
@@ -405,13 +407,13 @@ class OffRateFitter(ParticleFinder):
             self.count0Var6 = popt[3]
             self.kPhVar6 = popt[2]
             self.kOnVar6 = (popt[0] * popt[1]) / self.kPhVar6
-            self.kOffVar6 = -(popt[0] + popt[1]) - (self.kOnVar6 + 
+            self.kOffVar6 = -(popt[0] + popt[1]) - (self.kOnVar6 +
                                                     self.kPhVar6)
             self.fitSolVar6 = [curried_exact_solution(
                                 t, popt[0], popt[1], self.kPhVar6,
                                 self.count0Var6) for t in self.fitTimes]
 
-        if self.showFigs: 
+        if self.showFigs:
             for i in variants:
                 self.plot_offRateFit(variant=i)
 
@@ -436,70 +438,52 @@ class OffRateFitter(ParticleFinder):
         self.partCount = soln[:, 0]
         self.cytoCount = soln[:, 0]
         # Add noise to solution
-        self.partCount = (self.partCount + noise*R0*
-                                    random.rand(self.partCount.size))
+        self.partCount = (self.partCount + noise * R0 *
+                          random.rand(self.partCount.size))
 
     def plot_offRateFit(self, variant):
-        font = {'weight' : 'bold',
-                'size'   : 'larger'}
+        font = {'weight': 'bold',
+                'size': 'larger'}
         self.set_fig_style()
         fig, ax = subplots()
         fig.suptitle('Variant ' + str(variant), fontsize=20, fontdict=font,
                      bbox=dict(facecolor='green', alpha=0.3))
         if variant == 1:
-            ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSolVar1) 
+            ax.plot(self.fitTimes, self.partCount, self.fitTimes,
+                    self.fitSolVar1)
         elif variant == 2:
-            ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSolVar2)
+            ax.plot(self.fitTimes, self.partCount, self.fitTimes,
+                    self.fitSolVar2)
         elif variant == 3:
-            ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSolVar3)
+            ax.plot(self.fitTimes, self.partCount, self.fitTimes,
+                    self.fitSolVar3)
         elif variant == 4:
-            ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSolVar4)
+            ax.plot(self.fitTimes, self.partCount, self.fitTimes,
+                    self.fitSolVar4)
         elif variant == 5:
-            ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSolVar5)
-        elif variant ==6:
-            ax.plot(self.fitTimes, self.partCount, self.fitTimes, self.fitSolVar6)
+            ax.plot(self.fitTimes, self.partCount, self.fitTimes,
+                    self.fitSolVar5)
+        elif variant == 6:
+            ax.plot(self.fitTimes, self.partCount, self.fitTimes,
+                    self.fitSolVar6)
         else:
             print('Variant ' + str(variant) + ' does not exist.')
-        ax.set(ylabel='# particles', xlabel='t [s]') 
+        ax.set(ylabel='# particles', xlabel='t [s]')
         if self.saveFigs:
             savefig(self.stackPath + '_offRateFit.pdf', bbox_inches='tight')
-        if self.showFigs: show()
+        if self.showFigs:
+            show()
         close()
 
-class StructJanitor(object):
-    '''
-    Reads workspace and figures out newly placed files to run tracking on
-
-    Idea: Make user interact for every single movie to adjust threshold.
-    '''
-    def __init__(self, basePath):
-        dir_path = path.dirname(path.realpath(__file__))
-        self.basePath = basePath
-        chdir(self.basePath)
-        self.dir_list = next(walk('.'))[1]
-        self.database = read_csv(self.basePath+'database.csv')
-        # bo = [self.database.path.str.contains(x) for x in self.dir_list]
-        for directory in self.dir_list:
-            bo = self.database.path.str.contains(directory)
-            print(bo)
-        chdir(dir_path)
-    def run_on_new_files(newFileNames):
-        # for name in newFileNames:
-        #     m = ParticleFinder(name, 600, 0.033)
-        #     m.find_feats()
-        #     m.link_feats()
-        pass
-
-    def write_project_file():
-        pass
 
 class ParameterSampler():
+
     def __init__(self, kOffRange, kPhRange, kOnRange, noiseRange, name='1'):
         self.dfInput = DataFrame(columns=['kOff', 'kPh', 'kOn', 'noise'])
         self.dfOutput = DataFrame(columns=['kOffVar1', 'kOffVar2', 'kOffVar3',
-                                      'kOffVar4', 'kOffVar5', 'kOffVar6',
-                                      'kPhVar1', 'kPhVar5', 'kPhVar6',
-                                      'kOnVar5', 'kOnVar6'])
+                                           'kOffVar4', 'kOffVar5', 'kOffVar6',
+                                           'kPhVar1', 'kPhVar5', 'kPhVar6',
+                                           'kOnVar5', 'kOnVar6'])
         s = OffRateFitter()
         for kOff, kPh, kOn, noise in product(kOffRange, kPhRange,
                                              kOnRange, noiseRange):

@@ -15,7 +15,7 @@ for i = 1:sz(1)
     [x, y] = meshgrid(X, Y);
     xall = [xall; x(:)];
     yall = [yall; y(:)]; 
-    pall = [pall; mvnpdf([x(:) y(:)], partPos(i, :), Sigma)];
+    pall = [pall; mvnpdf([x(:) y(:)], partPos(i, :), [Sigma, Sigma])];
 end
 
 % Sort by ascending x-values

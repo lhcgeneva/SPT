@@ -3,6 +3,11 @@
 
 # In[1]:
 
+get_ipython().magic('qtconsole')
+
+
+# In[2]:
+
 from IPython.display import HTML
 
 HTML('''<script>
@@ -42,12 +47,13 @@ Created with Jupyter, delivered by Fastly, rendered by Rackspace.
 # 
 # In order to test changes made to particle tracking and off rate fitting this document can serve as a standard. Sample data for diffusion contains PAR-6 measurements. Also compare to Matlab's testing file. Both should give roughly the same outputs.
 
-# In[2]:
+# In[4]:
 
 import time
 import sys
 from matplotlib import pyplot as plt
 sys.path.append('/Users/hubatsl/Desktop/SPT/Us/SPT/Python')
+sys.path.append('/Users/hubatsl/Desktop/SPT/Us/SPT/Python/src')
 from MovieTracks import DiffusionFitter, OffRateFitter, ParameterSampler
 get_ipython().magic('matplotlib inline')
 
@@ -55,7 +61,7 @@ get_ipython().magic('matplotlib inline')
 # First, we test the particle tracking by running on the folder specified in 'fol'. 
 # After creating an instance of DiffusionFitter (d), d.analyze() is run to find features and link tracks.
 
-# In[3]:
+# In[5]:
 
 fol = '/Users/hubatsl/Desktop/SPT/Us/SPT/sample_data/16_07_20_PAR6_2/fov1_16bit/'
 d = DiffusionFitter(fol, 300, parallel=True, pixelSize=0.120, timestep=0.033,
@@ -66,14 +72,9 @@ t = time.time() - t0
 print('Test took ' + str(t) + ' seconds, normal time ~23 s.')
 
 
-# In[4]:
-
-d.frames
-
-
 # **Plot calibration of feature finding for one frame (1st frame by default).**
 
-# In[5]:
+# In[6]:
 
 d.showFigs = True
 d.plot_calibration()
@@ -85,18 +86,20 @@ else:
 
 # **Plot trajectories that are longer than treshold set by user.**
 
-# In[6]:
+# In[8]:
 
 d.plot_trajectories()
 if d.trajectories.particle.unique().size == 117:
-    print('Total number of features ' + str(d.trajectories.particle.unique().size) + ', as expected.')
+    print('Total number of trajectories ' + str(d.trajectories.particle.unique().size) +
+          ', as expected.')
 else:
-    print('Total number of features ' + str(d.trajectories.particle.unique().size) + ', not as expected 117.')
+    print('Total number of trajectories ' + str(d.trajectories.particle.unique().size) +
+          ', not as expected 117.')
 
 
 # **Plot mean square displacement over time.**
 
-# In[7]:
+# In[9]:
 
 d.plot_msd()
 f1, ax = plt.subplots()
@@ -104,11 +107,10 @@ ax.plot(d.im.index, d.im.iloc[:, 2::10])
 ax.set_xscale('log');
 ax.set_yscale('log');
 plt.show()
-d.D[2::10]
 #Plot low value msds!
 
 
-# In[8]:
+# In[10]:
 
 import numpy
 f1, ax = plt.subplots()
@@ -121,20 +123,20 @@ ax.plot(d.im.index, d.im.iloc[:, ((d.a<1.2)&(d.a>1))[::2]])
 #Check logical and!
 
 
-# In[9]:
+# In[11]:
 
 numpy.sqrt(0.2*4)/0.124
 
 
 # **Finally, fit $\langle x \rangle = 4Dt^\alpha$ and plot D vs $\alpha$**
 
-# In[10]:
+# In[12]:
 
 d.plot_diffusion_vs_alpha()
 d.D_restricted
 
 
-# In[11]:
+# In[13]:
 
 if d.D.mean()==0.12002050139512239:
     print('Mean d is ' + str(d.D.mean()) + ', as expected.')
@@ -142,7 +144,7 @@ else:
     print('Mean d is ' + str(d.D.mean()) + ', not as expected 0.12002050139512239.')
 
 
-# In[12]:
+# In[14]:
 
 import numpy
 part_count = d.trajectories['particle'].value_counts()
@@ -151,44 +153,3 @@ plt.show()
 
 
 # ** Try out reading metadata and images from .stk file **
-
-# In[13]:
-
-fol = '/Users/hubatsl/Desktop/16_07_20_PAR6-PAR6_KK902Viability/PAR6_PAR6_DoubleLine/16_07_20_PAR6_1_50p_33ms.stk'
-d = DiffusionFitter(fol, 300, parallel=True, pixelSize=0.120, autoMetaDataExtract=True)
-t0 = time.time()
-d.analyze()
-t = time.time() - t0
-d.showFigs = True
-d.plot_calibration()
-if d.features.size == 571230:
-    print('Total number of features ' + str(d.features.size) + ', as expected.')
-else:
-    print('Total number of features ' + str(d.features.size) + ', not as expected 571230.')
-    d.plot_trajectories()
-if d.trajectories.particle.unique().size == 117:
-    print('Total number of features ' + str(d.trajectories.particle.unique().size) + ', as expected.')
-else:
-    print('Total number of features ' + str(d.trajectories.particle.unique().size) + ', not as expected 117.')
-d.plot_msd()
-f1, ax = plt.subplots()
-ax.plot(d.im.index, d.im.iloc[:, 2::10])
-ax.set_xscale('log');
-ax.set_yscale('log');
-plt.show()
-d.D[2::10]    
-d.plot_diffusion_vs_alpha()
-d.D_restricted
-if d.D.mean()==0.12002050139512239:
-    print('Mean d is ' + str(d.D.mean()) + ', as expected.')
-else:
-    print('Mean d is ' + str(d.D.mean()) + ', not as expected 0.12002050139512239.')
-part_count = d.trajectories['particle'].value_counts()
-n, bins, patches = plt.hist(part_count.asobject, range(80, 500, 10))
-plt.show()
-
-
-# In[ ]:
-
-
-

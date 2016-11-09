@@ -48,7 +48,7 @@ import numpy
 import sys
 import time
 from matplotlib import pyplot as plt
-sys.path.append('/Users/hubatsl/Desktop/SPT/Us/SPT/Python')
+sys.path.append('/Users/hubatsl/Desktop/SPT/Us/SPT/Python/src')
 from MovieTracks import OffRateFitter
 get_ipython().magic('matplotlib inline')
 
@@ -115,7 +115,7 @@ s.kPhVar1/0.0005
 
 # ** Test for automatic meta data extraction to get precise time intervals **
 
-# In[18]:
+# In[8]:
 
 fol = '/Users/hubatsl/Desktop/SPT/Us/SPT/sample_data/16_04_11/100p_1s_100ms.stk'
 o = OffRateFitter(filePath=fol, threshold=2000, parallel=True, pixelSize=0.12, timestep=2,
@@ -127,12 +127,12 @@ print('time elapsed: '+ str(t)+'s, should not be substantially bigger than 2 s.'
 o.plot_calibration()
 
 
-# In[21]:
+# In[9]:
 
 o.fitTimes
 
 
-# In[20]:
+# In[10]:
 
 o.showFigs = True
 o.plot_calibration(1)

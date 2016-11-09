@@ -42,18 +42,18 @@ Created with Jupyter, delivered by Fastly, rendered by Rackspace.
 # 
 # In order to test changes made to off rate fitting this document can serve as a standard. Here, off-rate data is simulated for various parameter combinations, fits are performed and the resulting parameter space sweep is analysed.
 
-# In[2]:
+# In[1]:
 
 import numpy
 import sys
 import time
 from matplotlib import pyplot as plt
-sys.path.append('/Users/hubatsl/Desktop/SPT/Us/SPT/Python')
+sys.path.append('/Users/hubatsl/Desktop/SPT/Us/SPT/Python/src')
 from MovieTracks import ParameterSampler
 get_ipython().magic('matplotlib inline')
 
 
-# In[3]:
+# In[2]:
 
 import numpy
 from MovieTracks import ParameterSampler

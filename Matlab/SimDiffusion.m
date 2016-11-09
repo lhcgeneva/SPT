@@ -1,20 +1,25 @@
+%  Create 10 folders with identical simulation parameters, to test for
+%  difference between python and Matlab code
+for j = 1:10
+mkdir(num2str(j));
+cd(num2str(j));
 %% Create trajectory of diffusing particle
 pixel_size = 0.124;             % pixel size in µm
 a = 27/pixel_size;              % half of long axis of the embryo in µm
 b = 30/pixel_size;              % short axis of embryo in µm
-species = [100 100 100];
-Ds = [0.001, 0.01, 0.1] / pixel_size^2;   % mean diffusion constants
+species = [100, 100];
+Ds = [0.2, 0.4] / pixel_size^2;   % mean diffusion constants
 N = sum(species);                        % Number of molecules
 D = [];
 for i = 1 : length(species)           
     D = [D, Ds(i)*ones(1, species(i))];
 end
-var_coeff_det = 0.2;
+var_coeff_det = 0.1;
 var = var_coeff_det * D;                    % Variance of diffusion constant (in % of mean)         
 % Diffusion rates for each reaction drawn from gaussian distribution with 
 % mean d and variance a
 d = var.*randn(1,N) + D; 
-frame_interval = 0.033/2;                     % timestep size in s
+frame_interval = 0.033;                     % timestep size in s
 timemax = 6;                                % in s
 framemax = floor(timemax/frame_interval);   % Maximum number of timesteps
 % Container for times and positions of molecules
@@ -42,7 +47,7 @@ x_y_cell = cellfun(@(x) pixel_size*squeeze(x), mat2cell(all_x_y, framemax, ones(
                     'UniformOutput', false);
 
 %% Create parpool
-parpool(8);
+parpool(4);
 %% Create images
 imageBaseValue = 950;
 noiseVariance = 200;
@@ -55,7 +60,7 @@ imMat = abs(noiseVariance*randn(size_synthetic_movie)+imageBaseValue);
 parfor i = 1:size_synthetic_movie(3)
     [xall, yall, pall, im] = ...
                     sum_gaussians(size_synthetic_movie(1:2), resolution,...
-                                  [allx(i, :)', ally(i, :)'], [Sigma, Sigma]);
+                                  [allx(i, :)', ally(i, :)'], Sigma);
     imMat(:, :, i) = imMat(:, :, i) + aboveBG/mean(im(im>0)) * im;
 end
 toc
@@ -65,4 +70,6 @@ log_synth = table(frame_interval, pixel_size, a, b, N, Ds, var_coeff_det,...
 writetable(log_synth)
 for i = 1:size_synthetic_movie(3)
     imwrite(uint16(imMat(:, :, i)),['fov12_', num2str(i,'%04d'), '.tif']);
+end
+cd ..
 end
