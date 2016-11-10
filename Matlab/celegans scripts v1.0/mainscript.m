@@ -2,7 +2,7 @@
 
 %% initialization
 numFrames =1300; %number of frames to track
-fovn = 1; %id of file
+fovn = 2; %id of file
 timestep = 0.033; % seconds per frame
 fac=0.12; % in um per pixel
 

@@ -14,22 +14,22 @@
 % stores some metadata that's important for the tracking in a file in the same 
 % folder called 'log_file.txt'
 
-frame_interval = [0.033; 0.033; 0.033; 0.033; 0.033]; % Frame interval in s 
-pixel_size = [0.12; 0.12; 0.12; 0.12; 0.12]; % pixel size in microns 
-masscut = [330; 350; 350; 350; 320]; 
-featsize = [3; 3; 3; 3; 3]; 
-maxdisp = [5; 5; 5; 5; 5]; 
-memory = [7; 7; 7; 7; 7]; 
-min_track_length = [80; 80; 80; 80; 80]; 
-log_file = table(frame_interval, pixel_size, featsize, maxdisp, masscut, ...
-                 memory, min_track_length); 
-writetable(log_file);
+% frame_interval = [0.033; 0.033; 0.033; 0.033; 0.033]; % Frame interval in s 
+% pixel_size = [0.12; 0.12; 0.12; 0.12; 0.12]; % pixel size in microns 
+% masscut = [330; 350; 350; 350; 320]; 
+% featsize = [3; 3; 3; 3; 3]; 
+% maxdisp = [5; 5; 5; 5; 5]; 
+% memory = [7; 7; 7; 7; 7]; 
+% min_track_length = [80; 80; 80; 80; 80]; 
+% log_file = table(frame_interval, pixel_size, featsize, maxdisp, masscut, ...
+%                  memory, min_track_length); 
+% writetable(log_file);
 %% Find particles
 
-logfile = readtable('log_file.txt');
-for i = 1:height(logfile)
-    find_particles(logfile, i, 0, 1)
-end
+% logfile = readtable('log_file.txt');
+% for i = 1:height(logfile)
+%     find_particles(logfile, i, 0, 1)
+% end
 %% Or: set parameters manually
 % Use for testing individual movies, make sure all parameters are correct, then 
 % run this section
@@ -38,14 +38,19 @@ fovn = 1;
 featsize = nan(fovn, 1);
 frame_interval = nan(fovn, 1);
 masscut = nan(fovn, 1);
-pixel_size = nan(fovn, 1);
+pixel_size = nan(fovn, 1);    
 maxdisp = nan(fovn, 1);
 min_track_length = nan(fovn, 1);
 memory = nan(fovn, 1);
 featsize(end) =3;
-frame_interval(end) = 0.040;
-masscut(end) = 650;
-pixel_size(end) = 0.1049;
+% Check frame interval if necessary, to make sure frames were recorded at the right speed
+% p = pwd; cd /Users/hubatsl/Desktop/16_07_20_PAR6-PAR6_KK902Viability/PAR6_PAR6_DoubleLine
+% file = '16_07_20_PAR6_1_50p_33ms.stk';
+% interval_vec = get_time_intervals(file);
+% cd(p);
+frame_interval(end) = 0.033; %mean(interval_vec);
+masscut(end) = 730;
+pixel_size(end) = 0.120;
 % Tracking parameters
 maxdisp(end) = 5;
 min_track_length(end) = 80;
@@ -140,19 +145,6 @@ end
 stepsize_rows = cellfun(@(x) x', stepsize, 'UniformOutput', false);
 stepsize_mat = [stepsize_rows{:}];
 steps_filter = stepsize_mat(stepsize_mat<0.1);
-r=[];ad=[];
-for i=1: length(x_y_cell)
-    for j=1:length(x_y_cell{i})-1
-%         if sum(isnan(x_y_cell{i}(j+1,:)))==0 %sum(isnan(x_y_cell{i}(j,:)))==0 && 
-        x1=x_y_cell{i}(j,1);
-        x2=x_y_cell{i}(j+1,1);
-        y1=x_y_cell{i}(j,2);
-        y2=x_y_cell{i}(j+1,2);
-        temp=sqrt((x2-x1)^2+(y2-y1)^2);
-        r=[temp;r];
-%         end
-    end
-end
 %% Plot all msd over time
 
 figure; hold on;
