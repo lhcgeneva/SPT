@@ -1,0 +1,31 @@
+<script>
+  function code_toggle() {
+    if (code_shown){
+      $('div.input').hide('500');
+      $('#toggleButton').val('Show Code')
+    } else {
+      $('div.input').show('500');
+      $('#toggleButton').val('Hide Code')
+    }
+    code_shown = !code_shown
+  }
+
+  $( document ).ready(function(){
+    code_shown=false;
+    $('div.input').hide()
+  });
+</script>
+<form action="javascript:code_toggle()"><input type="submit" id="toggleButton" value="Show Code"></form>
+<script>
+  $(document).ready(function(){
+    $('div.prompt').hide();
+    $('div.back-to-top').hide();
+    $('nav#menubar').hide();
+    $('.breadcrumb').hide();
+    $('.hidden-print').hide();
+  });
+</script>
+
+<footer id="attribution" style="float:right; color:#999; background:#fff;">
+Created with Jupyter, delivered by Fastly, rendered by Rackspace.
+</footer>

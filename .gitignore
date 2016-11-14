@@ -25,3 +25,4 @@ sample_data
 *.m~
 *.mlx
 offRate_Simulation_*
+!hide_code.html
