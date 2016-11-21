@@ -4,6 +4,7 @@ from itertools import repeat
 import numpy as np
 import scipy.stats as stats
 from multiprocessing import Pool
+from os import path, makedirs
 from pandas import DataFrame
 from tifffile import imsave
 
@@ -11,15 +12,17 @@ from tifffile import imsave
 class ImageSimulator(object):
 
     def __init__(self, DiffCoeffs, noPerSpecies, aboveBG=550,
-                 fname='test/temp', frameInt=0.033, imageBaseValue=950,
-                 no_workers=8, noiseVariance=200, pixelSize=0.124,
-                 resolution=0.1, Sigma=1, timemax=6, varCoeffDet=0.1):
+                 fname='temp', folder='test/', frameInt=0.033,
+                 imageBaseValue=950, no_workers=8, noiseVariance=200,
+                 pixelSize=0.124, resolution=0.1, Sigma=1, timemax=6,
+                 varCoeffDet=0.1):
         # arguments
         self.Ds = DiffCoeffs / pixelSize**2
         self.noPerSpecies = noPerSpecies
         # keyword arguments
         self.aboveBG = aboveBG
         self.fname = fname
+        self.folder = folder
         self.frameInt = frameInt
         self.imageBaseValue = imageBaseValue  # match experimental BG values
         self.no_workers = no_workers          # no. of CPU cores to use
@@ -93,8 +96,11 @@ class ImageSimulator(object):
                                    self.aboveBG/np.mean(im[im > 0])*im)
 
     def write_images(self):
+        if not path.exists(self.folder):
+            makedirs(self.folder)
         for i in range(self.imMat.shape[2]):
-            imsave(self.fname+str(i)+'.tif', np.uint16(self.imMat[:, :, i]))
+            imsave(self.folder+self.fname+str(i)+'.tif',
+                   np.uint16(self.imMat[:, :, i]))
 
     def write_log(self):
         columns = ['DiffCoeffs', 'noPerSpecies', 'aboveBG=550', 'fname',
@@ -107,7 +113,7 @@ class ImageSimulator(object):
                   self.resolution, self.Sigma, self.timemax, self.varCoeffDet]
         self.dfInput = DataFrame(columns=columns)
         self.dfInput.loc[0] = values
-        self.dfInput.to_csv(self.fname + '_in.csv')
+        self.dfInput.to_csv(self.folder+self.fname+'_in.csv')
 
 
 def sum_gaussians(gridsize, resolution, partPos, Sigma):

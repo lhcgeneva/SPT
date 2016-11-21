@@ -145,7 +145,7 @@ class ParticleFinder(object):
                 'timestep': self.threshold, 'timestep': self.timestep,
                 'path': self.stackPath}
         frame_to_write = DataFrame(data, index=[0])
-        frame_to_write.to_csv(self.basePath + 'summary_secondhalf.csv')
+        frame_to_write.to_csv(self.basePath + 'summary.csv')
         print('Summary saved.')
 
     def write_images(self):
@@ -258,7 +258,7 @@ class DiffusionFitter(ParticleFinder):
         columns = ['a', 'D']
         combinedNumpyArray = c_[self.a, self.D]
         d = DataFrame(data=combinedNumpyArray, columns=columns)
-        d.to_csv(self.stackPath + 'Particle_D_a_secondhalf.csv')
+        d.to_csv(self.stackPath + 'Particle_D_a.csv')
 
 
 class OffRateFitter(ParticleFinder):
