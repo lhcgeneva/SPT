@@ -10,7 +10,7 @@ from numpy import (arange, c_, diff, exp, histogram, linspace, log10, mean,
 from pandas import concat, DataFrame
 from pims import ImageSequence
 from pims_nd2 import ND2_Reader
-from os import chdir, path, makedirs
+from os import chdir, makedirs, path, stat
 from re import findall, split
 from scipy import integrate, optimize
 from sys import exit
@@ -132,7 +132,7 @@ class ParticleFinder(object):
         fig = tp.annotate(f, self.frames[calibrationFrame])
         if self.saveFigs:
             fig1 = fig.get_figure()
-            fig1.savefig(self.stackPath + 'Particle_Calibration' + '.pdf',
+            fig1.savefig(self.stackPath + 'Particle_Calibration' + '.png',
                          bbox_inches='tight')
         if self.showFigs:
             show()
@@ -145,7 +145,7 @@ class ParticleFinder(object):
                 'timestep': self.threshold, 'timestep': self.timestep,
                 'path': self.stackPath}
         frame_to_write = DataFrame(data, index=[0])
-        frame_to_write.to_csv(self.basePath + 'summary.csv')
+        frame_to_write.to_csv(self.basePath + 'summary'+self.stackName+'.csv')
         print('Summary saved.')
 
     def write_images(self):
@@ -255,10 +255,27 @@ class DiffusionFitter(ParticleFinder):
         close()
 
     def save_output(self):
+        super().save_summary_input()
         columns = ['a', 'D']
         combinedNumpyArray = c_[self.a, self.D]
         d = DataFrame(data=combinedNumpyArray, columns=columns)
-        d.to_csv(self.stackPath + 'Particle_D_a.csv')
+        d.to_csv(self.stackPath + 'D_a_'+self.stackName+'.csv')
+
+    def append_output_to_csv(self, csv_path):
+        data = {'Alpha_mean': self.a.mean(), 'D_mean': self.D.mean(),
+                'D_restr': self.D_restricted, 'File': self.stackPath}
+        df = DataFrame(data, index=[0])
+        with open(csv_path, 'a') as f:
+            # Check whehter file empty, if not omit header
+            # The columns need to be in alphabetical order, because of pandas
+            # bug, should be fixed in next pandas release.
+            if stat(csv_path).st_size == 0:
+                # Make sure to keep alphabetical order!!!
+                df.to_csv(f, header=True, cols=['Alpha_mean', 'D_mean',
+                                                'D_restr', 'File'])
+            else:
+                df.to_csv(f, header=False, cols=['Alpha_mean', 'D_mean',
+                                                 'D_restr', 'File'])
 
 
 class OffRateFitter(ParticleFinder):

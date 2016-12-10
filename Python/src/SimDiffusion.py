@@ -14,8 +14,9 @@ class ImageSimulator(object):
     def __init__(self, DiffCoeffs, noPerSpecies, aboveBG=550,
                  fname='temp', folder='test/', frameInt=0.033,
                  imageBaseValue=950, no_workers=8, noiseVariance=200,
-                 pixelSize=0.124, resolution=0.1, Sigma=1, timemax=6,
-                 varCoeffDet=0.1):
+                 pixelSize=0.124, resolution=0.1, scaleFactor=3,
+                 Sigma=1, timemax=6, varCoeffDet=0.1):
+
         # arguments
         self.Ds = DiffCoeffs / pixelSize**2
         self.noPerSpecies = noPerSpecies
@@ -33,8 +34,8 @@ class ImageSimulator(object):
         self.varCoeffDet = varCoeffDet        # coefficient of variation for D
         self.timemax = timemax                # movie time
         # set problem specific parameters that need not normally be changed
-        self.a = 27/self.pixelSize  # half of long axis of the embryo in µm
-        self.b = 30/self.pixelSize  # short axis of embryo in µm
+        self.a = scaleFactor*27/self.pixelSize  # half of embryo long axis (µm)
+        self.b = scaleFactor*15/self.pixelSize  # half of embryo short axis(µm)
         self.N = sum(self.noPerSpecies)  # number of molecules
         self.D = np.repeat(self.Ds, self.noPerSpecies)  # mean D repeated
         self.var = self.varCoeffDet * self.D  # variance for each particle
