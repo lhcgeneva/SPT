@@ -22,6 +22,8 @@ import trackpy as tp
 '''
 TO DO:
 Separate arguments for DiffusionFitter/OffRateFitter/ParticleFinder
+Fix file reading, there's a lot of redundancy (.stk files are read
+but not written in write_images, etc...)
 '''
 
 
@@ -35,8 +37,8 @@ class ParticleFinder(object):
     '''
 
     def __init__(self, filePath=None, threshold=40,
-                 autoMetaDataExtract=True, dist=5, featSize=3, memory=7,
-                 minTrackLength=80, no_workers=8, parallel=True,
+                 autoMetaDataExtract=True, dist=5, featSize=3, maxsize=0.865,
+                 memory=7, minTrackLength=80, no_workers=8, parallel=True,
                  pixelSize=0.120, saveFigs=False, showFigs=False,
                  startFrame=0, timestep=None):
         self.no_workers = no_workers
@@ -48,6 +50,7 @@ class ParticleFinder(object):
             self.autoMetaDataExtract = autoMetaDataExtract
             self.dist = dist
             self.featSize = featSize
+            self.maxsize = maxsize
             self.minTrackLength = minTrackLength
             self.startFrame = startFrame
             self.stackPath = filePath
@@ -80,7 +83,7 @@ class ParticleFinder(object):
                            optional argument to ParticleFinder.''')
                 exit()
             # If file format of stack is .nd2 read and write stack
-            if 'nd2' in self.stackPath or '.stk' in self.stackPath:
+            if 'nd2' or '.stk' or '.tif' in self.stackPath:
                 self.write_images()
             # Read in image sequence from newly created file
             self.frames = ImageSequence(self.basePath+self.stackName+'/*.tif',
@@ -113,22 +116,27 @@ class ParticleFinder(object):
             self.f_list.append(self.frames[int(s * (self.no_workers - 1)):])
             # Create pool, use starmap to pass more than one parameter, do work
             pool = Pool(processes=self.no_workers)
+            # Tracer()()
             res = pool.starmap(tp.batch, zip(self.f_list,
                                              repeat(self.featSize),
-                                             repeat(self.threshold)))
+                                             repeat(self.threshold),
+                                             repeat(self.maxsize)))
             # Concatenate results and close and join pool
             self.features = concat(res)
             pool.close()
             pool.join()
         else:
             self.features = tp.batch(self.frames[:], self.featSize,
-                                     minmass=self.threshold, invert=False)
+                                     minmass=self.threshold,
+                                     maxsize=self.maxsize,
+                                     invert=False)
 
     def plot_calibration(self, calibrationFrame=0):
         self.set_fig_style()
         imshow(self.frames[calibrationFrame])
+        print(self.maxsize)
         f = tp.locate(self.frames[calibrationFrame], self.featSize,
-                      invert=False, minmass=self.threshold)
+                      invert=False, minmass=self.threshold, maxsize=self.maxsize)
         fig = tp.annotate(f, self.frames[calibrationFrame])
         if self.saveFigs:
             fig1 = fig.get_figure()
@@ -153,13 +161,19 @@ class ParticleFinder(object):
             makedirs(self.basePath+self.stackName)
             dir_path = path.dirname(path.realpath(__file__))
             chdir(self.basePath+self.stackName)
-            if '.stk' in self.stackPath:
+            # Tracer()()
+            if '.stk' or '.tif' in self.stackPath:
                 frames = TiffFile(self.stackPath).asarray()
             else:
                 frames = ND2_Reader(self.stackPath)
-            for i in range(len(frames)):
-                imsave(self.stackName+'_'+str(i)+'.tif', frames[i])
+            if len(frames.shape) == 2:
+                imsave(self.stackName+'.tif', frames)
+            else:
+                for i in range(len(frames)):
+                    imsave(self.stackName+'_'+str(i)+'.tif', frames[i])
             chdir(dir_path)
+        else:
+            print('Path already exists, not writing.')
 
     def set_fig_style(self):
         ioff()
