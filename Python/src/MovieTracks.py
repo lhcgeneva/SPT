@@ -2,8 +2,8 @@
 from IPython.core.debugger import Tracer
 from itertools import repeat, product
 from math import ceil
-from matplotlib.pyplot import (close, figure, imshow, ioff, savefig, show,
-                               subplots)
+from matplotlib.pyplot import (close, figure, imshow, ioff, savefig, scatter,
+                               show, subplots)
 from multiprocessing import Pool
 from numpy import (arange, c_, diff, exp, histogram, linspace, log10, mean,
                    polyfit, random, sum, transpose, zeros)
@@ -37,7 +37,7 @@ class ParticleFinder(object):
     '''
 
     def __init__(self, filePath=None, threshold=40,
-                 autoMetaDataExtract=True, dist=5, featSize=3, maxsize=0.865,
+                 autoMetaDataExtract=True, dist=5, featSize=5, maxsize=None,
                  memory=7, minTrackLength=80, no_workers=8, parallel=True,
                  pixelSize=0.120, saveFigs=False, showFigs=False,
                  startFrame=0, timestep=None):
@@ -99,6 +99,19 @@ class ParticleFinder(object):
             self.plot_calibration()
         self.find_feats()
 
+    def append_output_to_csv(self, csv_path, data):
+        cols = [a for a in data.keys()]
+        df = DataFrame(data, index=[0])
+        with open(csv_path, 'a') as f:
+            # Check whether file empty, if not omit header
+            # The columns need to be in alphabetical order, because of pandas
+            # bug, should be fixed in next pandas release.
+            if stat(csv_path).st_size == 0:
+                # Make sure to keep alphabetical order!!!
+                df.to_csv(f, header=True, cols=cols)
+            else:
+                df.to_csv(f, header=False, cols=cols)
+
     def find_feats(self):
         '''
         Checks whether parallel execution is on, otherwise normal batch
@@ -116,7 +129,6 @@ class ParticleFinder(object):
             self.f_list.append(self.frames[int(s * (self.no_workers - 1)):])
             # Create pool, use starmap to pass more than one parameter, do work
             pool = Pool(processes=self.no_workers)
-            # Tracer()()
             res = pool.starmap(tp.batch, zip(self.f_list,
                                              repeat(self.featSize),
                                              repeat(self.threshold),
@@ -134,9 +146,9 @@ class ParticleFinder(object):
     def plot_calibration(self, calibrationFrame=0):
         self.set_fig_style()
         imshow(self.frames[calibrationFrame])
-        print(self.maxsize)
         f = tp.locate(self.frames[calibrationFrame], self.featSize,
-                      invert=False, minmass=self.threshold, maxsize=self.maxsize)
+                      invert=False, minmass=self.threshold,
+                      maxsize=self.maxsize)
         fig = tp.annotate(f, self.frames[calibrationFrame])
         if self.saveFigs:
             fig1 = fig.get_figure()
@@ -156,12 +168,16 @@ class ParticleFinder(object):
         frame_to_write.to_csv(self.basePath + 'summary'+self.stackName+'.csv')
         print('Summary saved.')
 
+    def set_fig_style(self):
+        ioff()
+        sns.set_context("poster")
+        sns.set_style("dark", {"axes.facecolor": 'c'})
+
     def write_images(self):
         if not path.exists(self.basePath+self.stackName):
             makedirs(self.basePath+self.stackName)
             dir_path = path.dirname(path.realpath(__file__))
             chdir(self.basePath+self.stackName)
-            # Tracer()()
             if '.stk' or '.tif' in self.stackPath:
                 frames = TiffFile(self.stackPath).asarray()
             else:
@@ -174,11 +190,6 @@ class ParticleFinder(object):
             chdir(dir_path)
         else:
             print('Path already exists, not writing.')
-
-    def set_fig_style(self):
-        ioff()
-        sns.set_context("poster")
-        sns.set_style("dark")
 
 
 class DiffusionFitter(ParticleFinder):
@@ -231,18 +242,34 @@ class DiffusionFitter(ParticleFinder):
         # Get msd microns per pixel = 100/285., frames per second = 24
         self.im = tp.imsd(self.trajectories, self.pixelSize, 1 / self.timestep)
 
-    def plot_diffusion_vs_alpha(self):
+    def plot_diffusion_vs_alpha(self, xlim=None, ylim=None):
         grouped = self.trajectories.groupby('particle')
         weights = [mean(group.mass) for name, group in grouped]
+        weights1 = self.trajectories.particle.value_counts(sort=False).tolist()
+        weights = [x if x <= 100 else 100 for x in weights1]
         self.set_fig_style()
         fig = figure()
         ax = fig.add_subplot(111)
-        ax.scatter(self.a, self.D, c=weights)
+        ax.scatter(self.a, self.D, c=weights, edgecolors='none', alpha=0.5,
+                   s=50)
+        if xlim is not None:
+            ax.set_xlim(xlim)
+        if ylim is not None:
+            ax.set_ylim(ylim)
         if self.saveFigs:
             savefig(self.stackPath + 'Particle_D_a.pdf', bbox_inches='tight')
         if self.showFigs:
             show()
         close()
+
+    def plot_diffusion_vs_alpha_verbose(self):
+        df = DataFrame({'D': self.D, 'a': self.a})
+        sns.set(style="white")
+        g = sns.PairGrid(df, diag_sharey=False, size=8)
+        g.map_lower(sns.kdeplot, cmap="Blues_d")
+        g.map_upper(scatter)
+        g.map_diag(sns.kdeplot, lw=3)
+        show()
 
     def plot_trajectories(self):
         self.set_fig_style()
@@ -275,21 +302,9 @@ class DiffusionFitter(ParticleFinder):
         d = DataFrame(data=combinedNumpyArray, columns=columns)
         d.to_csv(self.stackPath + 'D_a_'+self.stackName+'.csv')
 
-    def append_output_to_csv(self, csv_path):
-        data = {'Alpha_mean': self.a.mean(), 'D_mean': self.D.mean(),
+    def gData(self):
+        return {'Alpha_mean': self.a.mean(), 'D_mean': self.D.mean(),
                 'D_restr': self.D_restricted, 'File': self.stackPath}
-        df = DataFrame(data, index=[0])
-        with open(csv_path, 'a') as f:
-            # Check whehter file empty, if not omit header
-            # The columns need to be in alphabetical order, because of pandas
-            # bug, should be fixed in next pandas release.
-            if stat(csv_path).st_size == 0:
-                # Make sure to keep alphabetical order!!!
-                df.to_csv(f, header=True, cols=['Alpha_mean', 'D_mean',
-                                                'D_restr', 'File'])
-            else:
-                df.to_csv(f, header=False, cols=['Alpha_mean', 'D_mean',
-                                                 'D_restr', 'File'])
 
 
 class OffRateFitter(ParticleFinder):
@@ -505,6 +520,16 @@ class OffRateFitter(ParticleFinder):
         if self.showFigs:
             show()
         close()
+
+    def gData(self):
+        # Make sure things are in alphabetical order, see append_output_to_csv
+        return {'File': self.stackPath,
+                'kOff1': self.kOffVar1, 'kOff2': self.kOffVar2,
+                'kOff3': self.kOffVar3, 'kOff4': self.kOffVar4,
+                'kOff5': self.kOffVar5, 'kOff6': self.kOffVar6,
+                'kOnVar5': self.kOnVar5, 'kOnVar6': self.kOnVar6,
+                'kPh1': self.kPhVar1, 'kPh5': self.kPhVar5,
+                'kPh6': self.kPhVar6}
 
 
 class ParameterSampler():
