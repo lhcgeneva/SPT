@@ -539,7 +539,8 @@ class OffRateFitter(ParticleFinder):
             print('Variant ' + str(variant) + ' does not exist.')
         ax.set(ylabel='# particles', xlabel='t [s]')
         if self.saveFigs:
-            savefig(self.stackPath + '_offRateFit.pdf', bbox_inches='tight')
+            savefig(self.stackPath + '_offRateFit_variant_' + str(variant) +
+                    '.pdf', bbox_inches='tight')
         if self.showFigs:
             show()
         close()
