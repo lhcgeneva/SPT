@@ -34,6 +34,26 @@ class ParticleFinder(object):
     accessed through class interface. Every movie becomes one instance of the
     class. ParticleFinder is a generic interface, for off rates or
     diffusion rates use OffRateFitter or DiffusionFitter
+
+    Parameters:
+    filePath            Path of .stk file or folder containing tiffs
+    threshold           minmass parameter for trackpy
+    autoMetaDataExtract Boolean, decide whether to extract meta data from file
+    dist                search_range parameter for trackpy, distance a particle
+                        can move between frames in pixels
+    featSize            diameter parameter for trackpy, approx. feature size
+    maxsize             maxsize parameter for trackpy
+    memory              memory parameter for trackpy
+    minTrackLength      Minimum track length for trackpy (func filter_stubs)
+    no_workers          Number of parallel processes to be started if parallel
+                        is true
+    parallel            Boolean, to run feature finding on more than one core
+    pixelSize           Pixel size of microscope in microns
+    saveFigs            Boolean, to save figures or not to save
+    showFigs            Boolean, to show figures after creating them
+    startFrame          First frame to take into consideration for analysis
+                        for off rates
+    timestep            real time difference between frames
     '''
 
     def __init__(self, filePath=None, threshold=40,
@@ -88,7 +108,6 @@ class ParticleFinder(object):
             # Read in image sequence from newly created file
             self.frames = ImageSequence(self.basePath+self.stackName+'/*.tif',
                                         as_grey=True)
-            self.frames = self.frames[self.startFrame:]
 
     def analyze(self):
         '''
@@ -171,7 +190,7 @@ class ParticleFinder(object):
     def set_fig_style(self):
         ioff()
         sns.set_context("poster")
-        sns.set_style("dark", {"axes.facecolor": 'c'})
+        sns.set_style("dark", {"axes.facecolor": 'lightsage'})
 
     def write_images(self):
         if not path.exists(self.basePath+self.stackName):
@@ -200,11 +219,12 @@ class DiffusionFitter(ParticleFinder):
                         Aug_09_10_Test_SPT/th411_P0_40ms_100p_299gain_1678ang_
                         earlyMaintenance.nd2', 1100, autoMetaDataExtract=True)
 
-    Extends ParticleFinder to implement Off rate calculation
+    Extends ParticleFinder to implement mobility calculation
     '''
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        self.frames = self.frames[self.startFrame:]
 
     def analyze(self):
         super().analyze()
@@ -327,6 +347,9 @@ class OffRateFitter(ParticleFinder):
         else:
             self.fitTimes = arange(0, len(self.partCount)*self.timestep,
                                    self.timestep)
+        if self.startFrame > 0:
+            self.fitTimes = self.fitTimes[self.startFrame::]
+            self.partCount = self.partCount[self.startFrame::]
 
     def fit_offRate(self, variants=[1, 2, 3, 4, 5, 6]):
         '''
