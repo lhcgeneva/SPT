@@ -11,11 +11,12 @@ from tifffile import imsave
 
 class ImageSimulator(object):
 
-    def __init__(self, DiffCoeffs, noPerSpecies, aboveBG=550,
+    def __init__(self, DiffCoeffs, noPerSpecies, aboveBG=250,
                  fname='temp', folder='test/', frameInt=0.033,
-                 imageBaseValue=950, no_workers=8, noiseVariance=200,
-                 pixelSize=0.124, resolution=0.1, scaleFactor=3,
-                 Sigma=1, timemax=6, varCoeffDet=0.1):
+                 imageBaseValue=950, lAxis=54, sAxis=30, no_workers=8,
+                 noiseVariance=200,
+                 pixelSize=0.124, resolution=0.8, scaleFactor=1,
+                 Sigma=1, timemax=6, varCoeffDet=0.5):
 
         # arguments
         self.Ds = DiffCoeffs / pixelSize**2
@@ -26,6 +27,8 @@ class ImageSimulator(object):
         self.folder = folder
         self.frameInt = frameInt
         self.imageBaseValue = imageBaseValue  # match experimental BG values
+        self.lAxis = lAxis  # Long axis of embryo (µm)
+        self.sAxis = sAxis  # Short axis of embryo (µm)
         self.no_workers = no_workers          # no. of CPU cores to use
         self.noiseVariance = noiseVariance    # approx. noise variance in exps.
         self.pixelSize = pixelSize            # in microns
@@ -34,14 +37,19 @@ class ImageSimulator(object):
         self.varCoeffDet = varCoeffDet        # coefficient of variation for D
         self.timemax = timemax                # movie time
         # set problem specific parameters that need not normally be changed
-        self.a = scaleFactor*27/self.pixelSize  # half of embryo long axis (µm)
-        self.b = scaleFactor*15/self.pixelSize  # half of embryo short axis(µm)
+        self.a = scaleFactor*lAxis/self.pixelSize  # embryo long axis (pxls)
+        self.b = scaleFactor*sAxis/self.pixelSize  # embryo short axis (pxls)
         self.N = sum(self.noPerSpecies)  # number of molecules
         self.D = np.repeat(self.Ds, self.noPerSpecies)  # mean D repeated
         self.var = self.varCoeffDet * self.D  # variance for each particle
         # different D for every particle
         self.d = np.random.normal(self.D, self.var, (1, self.N))
 
+    def create_tracks(self):
+        '''
+        Create position for tracks, unconvoluted images,
+        including shot noise added to images.
+        '''
         # allocate memory for particles
         self.framemax = int(np.floor(self.timemax/self.frameInt))
         self.allx = np.zeros((self.framemax, self.N))
@@ -82,6 +90,7 @@ class ImageSimulator(object):
         '''
         # use parallel pool to get convolution done
         pool = Pool(processes=self.no_workers)
+        # Tracer()()
         res = pool.starmap(
                 sum_gaussians,
                 zip(repeat(self.size_synthetic_movie[0:2]),

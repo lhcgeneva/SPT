@@ -2,12 +2,13 @@
 from IPython.core.debugger import Tracer
 from itertools import repeat, product
 from math import ceil
-from matplotlib.pyplot import (close, figure, imshow, ioff, savefig, scatter,
-                               show, subplots)
+from matplotlib.pyplot import (close, figure, gcf, imshow, ioff, savefig,
+                               scatter, show, subplots)
 from multiprocessing import Pool
-from numpy import (arange, c_, diff, exp, histogram, linspace, log10, mean,
-                   polyfit, random, sum, transpose, zeros)
+from numpy import (arange, array, c_, diff, dot, exp, histogram, linspace,
+                   log10, mean, polyfit, random, sum, transpose, zeros)
 from pandas import concat, DataFrame
+from pickle import dump, HIGHEST_PROTOCOL
 from pims import ImageSequence
 from pims_nd2 import ND2_Reader
 from os import chdir, makedirs, path, stat
@@ -79,35 +80,7 @@ class ParticleFinder(object):
             self.memory = memory
             self.pixelSize = pixelSize
             self.threshold = threshold
-            # Check whether to extract frame intervals automatically
-            if autoMetaDataExtract and '.nd2' in self.stackPath:
-                frames = ND2_Reader(self.stackPath)
-                self.timestep = (frames[-1].metadata.get('t_ms', None) /
-                                 (len(frames)-1))
-                frames.close()
-            elif autoMetaDataExtract and '.stk' in self.stackPath:
-                tif = TiffFile(self.stackPath)
-                string = tif.pages[0].image_description[0:1000].decode("utf-8")
-                idx1 = string.find('Exp')
-                idx2 = string.find('ms')
-                exp_string = string[idx1:idx2+4]
-                self.exposure = float(findall('\d+', exp_string)[0])/1000
-                time_created = tif.pages[0].uic2tag.time_created/1000  # in sec
-                self.timestep = mean(diff(time_created))
-                if timestep is not None:
-                    print('Input time step ignored.')
-            elif ((autoMetaDataExtract and '.nd2' not in self.stackPath) or
-                    self.timestep is None):
-                print(''''Metadata extraction currently only supported for
-                           .nd2 and .stk files. Please provide the timestep as
-                           optional argument to ParticleFinder.''')
-                exit()
-            # If file format of stack is .nd2 read and write stack
-            if 'nd2' or '.stk' or '.tif' in self.stackPath:
-                self.write_images()
-            # Read in image sequence from newly created file
-            self.frames = ImageSequence(self.basePath+self.stackName+'/*.tif',
-                                        as_grey=True)
+            self.load_frames()
 
     def analyze(self):
         '''
@@ -162,6 +135,46 @@ class ParticleFinder(object):
                                      maxsize=self.maxsize,
                                      invert=False)
 
+    def pickle_data(self):
+        self.frames = []
+        with open(self.stackPath + '.pickle', 'wb') as f:
+            # Pickle the self using the highest protocol available.
+            dump(self, f, HIGHEST_PROTOCOL)
+
+    def load_frames(self):
+        '''
+        Load data from path, Check whether to extract frame intervals
+        automatically
+        '''
+        if self.autoMetaDataExtract and '.nd2' in self.stackPath:
+            frames = ND2_Reader(self.stackPath)
+            self.timestep = (frames[-1].metadata.get('t_ms', None) /
+                             (len(frames)-1))
+            frames.close()
+        elif self.autoMetaDataExtract and '.stk' in self.stackPath:
+            tif = TiffFile(self.stackPath)
+            string = tif.pages[0].image_description[0:1000].decode("utf-8")
+            idx1 = string.find('Exp')
+            idx2 = string.find('ms')
+            exp_string = string[idx1:idx2+4]
+            self.exposure = float(findall('\d+', exp_string)[0])/1000
+            time_created = tif.pages[0].uic2tag.time_created/1000  # in sec
+            self.timestep = mean(diff(time_created))
+            if self.timestep is not None:
+                print('Input time step ignored, extracted timestep is ' +
+                      str(self.timestep))
+        elif ((self.autoMetaDataExtract and '.nd2' not in self.stackPath) or
+                self.timestep is None):
+            print(''''Metadata extraction currently only supported for
+                       .nd2 and .stk files. Please provide the timestep as
+                       optional argument to ParticleFinder.''')
+        # If file format of stack is .nd2 read and write stack
+        if 'nd2' or '.stk' or '.tif' in self.stackPath:
+            self.write_images()
+        # Read in image sequence from newly created file
+        self.frames = ImageSequence(self.basePath+self.stackName+'/*.tif',
+                                    as_grey=True)
+
     def plot_calibration(self, calibrationFrame=0):
         self.set_fig_style()
         imshow(self.frames[calibrationFrame])
@@ -171,7 +184,8 @@ class ParticleFinder(object):
         fig = tp.annotate(f, self.frames[calibrationFrame])
         if self.saveFigs:
             fig1 = fig.get_figure()
-            fig1.savefig(self.stackPath + 'Particle_Calibration' + '.png',
+            fig1.savefig(self.stackPath + 'Particle_Calibration' +
+                         str(calibrationFrame) + '.tif',
                          bbox_inches='tight')
         if self.showFigs:
             show()
@@ -272,6 +286,7 @@ class DiffusionFitter(ParticleFinder):
         ax = fig.add_subplot(111)
         ax.scatter(self.a, self.D, c=weights, edgecolors='none', alpha=0.5,
                    s=50)
+        ax.set(ylabel='D [\frac{\mu m^2}{s}]', xlabel='\alpha')
         if xlim is not None:
             ax.set_xlim(xlim)
         if ylim is not None:
@@ -285,15 +300,20 @@ class DiffusionFitter(ParticleFinder):
     def plot_diffusion_vs_alpha_verbose(self):
         df = DataFrame({'D': self.D, 'a': self.a})
         sns.set(style="white")
+        sns.set(font_scale=2)
         g = sns.PairGrid(df, diag_sharey=False, size=8)
         g.map_lower(sns.kdeplot, cmap="Blues_d")
         g.map_upper(scatter)
         g.map_diag(sns.kdeplot, lw=3)
+        fig = gcf()
+        if self.saveFigs:
+            fig.savefig(self.stackPath + 'Diff_vs_A_verbose' + '.pdf',
+                        bbox_inches='tight')
         show()
 
     def plot_trajectories(self):
         self.set_fig_style()
-        fig = tp.plot_traj(self.trajectories, label=True)
+        fig = tp.plot_traj(self.trajectories, label=False)
         fig = fig.get_figure()
         if self.saveFigs:
             fig.savefig(self.stackPath + 'Particle_Trajectories' + '.pdf',
@@ -320,7 +340,7 @@ class DiffusionFitter(ParticleFinder):
         columns = ['a', 'D']
         combinedNumpyArray = c_[self.a, self.D]
         d = DataFrame(data=combinedNumpyArray, columns=columns)
-        d.to_csv(self.stackPath + 'D_a_'+self.stackName+'.csv')
+        d.to_csv(self.basePath + 'D_a_'+self.stackName+'.csv')
 
     def gData(self):
         return {'Alpha_mean': self.a.mean(), 'D_mean': self.D.mean(),
@@ -596,3 +616,22 @@ class ParameterSampler():
             self.dfOutput = self.dfOutput.append(temp)
         self.dfOutput.to_csv('out' + str(name) + '.csv')
         self.dfInput.to_csv('in' + str(name) + '.csv')
+
+
+'''
+Convenience functions
+'''
+
+
+def vel_autocorr(x, delta):
+    '''
+    Returns autocorrelation for all lag times
+    '''
+    v = array(x)[delta:]-array(x)[:-delta]
+    ac = []
+    for i in range(len(v)):
+        dotted = dot(v[:-i or None], v[i:])
+        ac_i = dotted/(len(v[:-i or None]))
+        ac.append(ac_i)
+    ac = ac/max(ac)
+    return ac
