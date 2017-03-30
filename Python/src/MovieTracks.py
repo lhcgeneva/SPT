@@ -185,7 +185,7 @@ class ParticleFinder(object):
         if self.saveFigs:
             fig1 = fig.get_figure()
             fig1.savefig(self.stackPath + 'Particle_Calibration' +
-                         str(calibrationFrame) + '.tif',
+                         str(calibrationFrame) + '.png',
                          bbox_inches='tight')
         if self.showFigs:
             show()
