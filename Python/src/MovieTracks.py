@@ -1,12 +1,14 @@
 # Author: Lars Hubatsch, object oriented wrapper for trackpy
 from IPython.core.debugger import Tracer
 from itertools import repeat, product
-from math import ceil
-from matplotlib.pyplot import (close, figure, gcf, imshow, ioff, savefig,
+from math import ceil, sqrt
+from matplotlib.path import Path
+from matplotlib.pyplot import (close, figure, gcf, hist, imshow, ioff, savefig,
                                scatter, show, subplots)
 from multiprocessing import Pool
-from numpy import (arange, array, c_, diff, dot, exp, histogram, linspace,
-                   log10, mean, polyfit, random, sum, transpose, zeros)
+from numpy import (arange, array, asarray, c_, diff, dot, exp, histogram,
+                   linspace, log10, mean, polyfit, random, sum, transpose,
+                   zeros)
 from pandas import concat, DataFrame
 from pickle import dump, HIGHEST_PROTOCOL
 from pims import ImageSequence
@@ -16,7 +18,9 @@ from re import findall, split
 from scipy import integrate, optimize
 from sys import exit
 from tifffile import imsave, TiffFile
+import warnings
 
+from thirdParty.roipoly import roipoly  # In Jupyter set %matplotlib notebook
 import seaborn as sns
 import trackpy as tp
 
@@ -59,9 +63,9 @@ class ParticleFinder(object):
 
     def __init__(self, filePath=None, threshold=40,
                  autoMetaDataExtract=True, dist=5, featSize=5, maxsize=None,
-                 memory=7, minTrackLength=80, no_workers=8, parallel=True,
-                 pixelSize=0.120, saveFigs=False, showFigs=False,
-                 startFrame=0, timestep=None):
+                 memory=7, minTrackLength=80, no_workers=8, numFrames=10,
+                 parallel=True, pixelSize=0.120, saveFigs=False,
+                 showFigs=False, startFrame=0, startLag=1, timestep=None):
         self.no_workers = no_workers
         self.parallel = parallel
         self.saveFigs = saveFigs
@@ -72,13 +76,15 @@ class ParticleFinder(object):
             self.dist = dist
             self.featSize = featSize
             self.maxsize = maxsize
+            self.memory = memory
             self.minTrackLength = minTrackLength
+            self.numFrames = numFrames
+            self.pixelSize = pixelSize
             self.startFrame = startFrame
+            self.startLag = startLag
             self.stackPath = filePath
             self.basePath = split('/', self.stackPath[::-1], 1)[1][::-1] + '/'
             self.stackName = self.stackPath.split('/')[-1].split('.')[0]
-            self.memory = memory
-            self.pixelSize = pixelSize
             self.threshold = threshold
             self.load_frames()
 
@@ -125,10 +131,16 @@ class ParticleFinder(object):
                                              repeat(self.featSize),
                                              repeat(self.threshold),
                                              repeat(self.maxsize)))
-            # Concatenate results and close and join pool
-            self.features = concat(res)
+            # Concatenate results and assign to features (this is what every
+            # other function works on, except apply_ROI()) and all_features,
+            # which is kept to always be able to go back to working on the full
+            # set of points
+            self.all_features = concat(res)
+            self.features = self.all_features
+            # Close and join pool
             pool.close()
             pool.join()
+            self.f_list = []
         else:
             self.features = tp.batch(self.frames[:], self.featSize,
                                      minmass=self.threshold,
@@ -253,18 +265,41 @@ class DiffusionFitter(ParticleFinder):
     def analyze_tracks(self):
         # Convert to numpy, get diffusion coefficients
         numParticles = self.trajectories['particle'].nunique()
-        numFrames = 10
         imAsNumpyArray = self.im.as_matrix()
-        self.time = linspace(self.timestep,
-                             self.timestep * numFrames, numFrames)
+        self.time = linspace(self.startLag*self.timestep,
+                             self.timestep*(self.startLag+self.numFrames-1),
+                             self.numFrames)
         DA = zeros([numParticles, 2])
+        self.res = zeros([numParticles, 1])
         for j in range(0, numParticles):
-            MSD = imAsNumpyArray[0:numFrames, j]
-            results = polyfit(log10(self.time), log10(MSD), 1)
-            DA[j, ] = [results[0], results[1]]
+            MSD = imAsNumpyArray[self.startLag-1:self.startLag +
+                                 self.numFrames-1, j]
+            results = polyfit(log10(self.time), log10(MSD), 1, full=True)
+            DA[j, ] = [results[0][0], results[0][1]]
+            self.res[j] = results[1][0]
         self.D = 10**DA[:, 1]/4
         self.a = DA[:, 0]
         self.D_restricted = mean(self.D[(self.a > 0.9) & (self.a < 1.2)])
+
+    def hist_step_size(self, numBin=None, histCut=None, n=1):
+        '''
+        Plot histogram of step sizes.
+
+        n           number of frames to be jumped.
+        histCut     cuts off the histogram, defaults to self.dist
+        '''
+        if histCut is None:
+            histCut = self.dist
+        grouped = self.trajectories.groupby('particle')
+        g = grouped.apply(lambda x: diff(x['x'], n=n)**2 +
+                          diff(x['y'], n=n)**2).values
+        g_flat = [sqrt(x) for y in g for x in y]
+        g_flat = [x for x in g_flat if x < histCut]
+        if numBin is None:
+            hist(g_flat)
+        else:
+            hist(g_flat, numBin)
+        show()
 
     def link_feats(self):
         '''
@@ -281,12 +316,13 @@ class DiffusionFitter(ParticleFinder):
         weights = [mean(group.mass) for name, group in grouped]
         weights1 = self.trajectories.particle.value_counts(sort=False).tolist()
         weights = [x if x <= 100 else 100 for x in weights1]
+        weights = [x if x < 0.03 else 0.03 for x in self.res]
         self.set_fig_style()
         fig = figure()
         ax = fig.add_subplot(111)
         ax.scatter(self.a, self.D, c=weights, edgecolors='none', alpha=0.5,
                    s=50)
-        ax.set(ylabel='D [\frac{\mu m^2}{s}]', xlabel='\alpha')
+        ax.set(ylabel='D [$\mu$m$^2$/$s$]', xlabel=r'$\alpha$')
         if xlim is not None:
             ax.set_xlim(xlim)
         if ylim is not None:
@@ -304,7 +340,9 @@ class DiffusionFitter(ParticleFinder):
         g = sns.PairGrid(df, diag_sharey=False, size=8)
         g.map_lower(sns.kdeplot, cmap="Blues_d")
         g.map_upper(scatter)
-        g.map_diag(sns.kdeplot, lw=3)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            g.map_diag(sns.kdeplot, lw=int(3))
         fig = gcf()
         if self.saveFigs:
             fig.savefig(self.stackPath + 'Diff_vs_A_verbose' + '.pdf',
@@ -324,9 +362,8 @@ class DiffusionFitter(ParticleFinder):
         self.set_fig_style()
         fig, ax = subplots()
         fig.suptitle('MSD vs lag time', fontsize=20)
-        ax.plot(self.im.index, self.im, 'k-', alpha=0.4)
-        ax.set(ylabel='$\Delta$ $r^2$ [$\mu$m$^2$]',
-               xlabel='lag time $t$', ylim=[0.001, 10])
+        ax.plot(self.im.index, self.im, 'k-', alpha=0.4)  # already in sec
+        ax.set(ylabel='$\Delta$ $r^2$ [$\mu$m$^2$]', xlabel='lag time $t$')
         ax.set_xscale('log')
         ax.set_yscale('log')
         if self.saveFigs:
@@ -367,9 +404,27 @@ class OffRateFitter(ParticleFinder):
         else:
             self.fitTimes = arange(0, len(self.partCount)*self.timestep,
                                    self.timestep)
-        if self.startFrame > 0:
-            self.fitTimes = self.fitTimes[self.startFrame::]
-            self.partCount = self.partCount[self.startFrame::]
+
+    def apply_ROI(self):
+        '''
+        Filter all found features by whether they have been found
+        within this self.ROI
+        '''
+        bbPath = Path(asarray(
+                    list(zip(*(self.ROI.allxpoints, self.ROI.allypoints)))))
+        x_y_tuples = list(zip(*(self.all_features['x'].values,
+                                self.all_features['y'].values)))
+        mask = [bbPath.contains_point(asarray(i)) for i in x_y_tuples]
+        self.features = self.all_features[mask]
+        self.partCount, _ = histogram(self.features.frame,
+                                      bins=self.features.frame.max()+1)
+
+    def def_ROI(self, n=0):
+        '''
+        Define a ROI in the nth frame,
+        '''
+        imshow(self.frames[n])
+        self.ROI = roipoly(roicolor='r')
 
     def fit_offRate(self, variants=[1, 2, 3, 4, 5, 6]):
         '''
