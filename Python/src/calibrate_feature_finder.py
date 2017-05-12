@@ -30,7 +30,7 @@ def adj_thresh(calibFrame, thresh, maxSize, startFrame):
 # Read in initial values from excel file if defined, otherwise get default
 xls_db = read_excel(xls_file)
 if isnan(xls_db['Threshold'][movieNo]):
-    xls_db.loc[movieNo, 'Threshold'] = 900
+    xls_db.loc[movieNo, 'Threshold'] = 1500
 thresh = int(xls_db['Threshold'][movieNo])
 if isnan(xls_db['StartFrame'][movieNo]):
     xls_db.loc[movieNo, 'StartFrame'] = 0
@@ -40,5 +40,5 @@ if isnan(xls_db['MaxSize'][movieNo]):
 maxSize = int(xls_db.loc[movieNo, 'MaxSize'])
 
 # interact/IPython widget
-interact(adj_thresh, thresh=str(thresh), calibFrame='-1',
+interact(adj_thresh, thresh=str(thresh), calibFrame='0',
          maxSize=str(maxSize), startFrame=str(startFrame), __manual=True)

@@ -14,6 +14,7 @@ import sys
 import matplotlib.pyplot as plt
 import matplotlib.path as mplPath
 
+
 class roipoly:
 
     def __init__(self, fig=[], ax=[], roicolor='b'):
@@ -40,9 +41,9 @@ class roipoly:
             'button_press_event', self.__button_press_callback)
 
         if sys.flags.interactive:
-            plt.show(block=False)
+            plt.show(block=True)
         else:
-            plt.show()
+            plt.show(block=True)
 
     def getMask(self, currentImage):
         ny, nx = np.shape(currentImage)
@@ -54,23 +55,23 @@ class roipoly:
         # (<0,0> is at the top left of the grid in this system)
         x, y = np.meshgrid(np.arange(nx), np.arange(ny))
         x, y = x.flatten(), y.flatten()
-        points = np.vstack((x,y)).T
+        points = np.vstack((x, y)).T
 
         ROIpath = mplPath.Path(poly_verts)
-        grid = ROIpath.contains_points(points).reshape((ny,nx))
+        grid = ROIpath.contains_points(points).reshape((ny, nx))
         return grid
-      
-    def displayROI(self,**linekwargs):
+
+    def displayROI(self, **linekwargs):
         l = plt.Line2D(self.allxpoints +
-                     [self.allxpoints[0]],
-                     self.allypoints +
-                     [self.allypoints[0]],
-                     color=self.roicolor, **linekwargs)
+                       [self.allxpoints[0]],
+                       self.allypoints +
+                       [self.allypoints[0]],
+                       color=self.roicolor, **linekwargs)
         ax = plt.gca()
         ax.add_line(l)
         plt.draw()
 
-    def displayMean(self,currentImage, **textkwargs):
+    def displayMean(self, currentImage, **textkwargs):
         mask = self.getMask(currentImage)
         meanval = np.mean(np.extract(mask, currentImage))
         stdval = np.std(np.extract(mask, currentImage))

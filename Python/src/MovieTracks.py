@@ -7,8 +7,8 @@ from matplotlib.pyplot import (close, figure, gcf, hist, imshow, ioff, savefig,
                                scatter, show, subplots)
 from multiprocessing import Pool
 from numpy import (arange, array, asarray, c_, diff, dot, exp, histogram,
-                   linspace, log10, mean, polyfit, random, sum, transpose,
-                   zeros)
+                   linspace, log10, mean, polyfit, random, round, shape, sum,
+                   shape, transpose, zeros)
 from pandas import concat, DataFrame
 from pickle import dump, HIGHEST_PROTOCOL
 from pims import ImageSequence
@@ -62,7 +62,7 @@ class ParticleFinder(object):
     '''
 
     def __init__(self, filePath=None, threshold=40,
-                 autoMetaDataExtract=True, dist=5, featSize=5, maxsize=None,
+                 autoMetaDataExtract=True, dist=5, featSize=7, maxsize=None,
                  memory=7, minTrackLength=80, no_workers=8, numFrames=10,
                  parallel=True, pixelSize=0.120, saveFigs=False,
                  showFigs=False, startFrame=0, startLag=1, timestep=None):
@@ -88,15 +88,6 @@ class ParticleFinder(object):
             self.threshold = threshold
             self.load_frames()
 
-    def analyze(self):
-        '''
-        Convenience function to run analysis in one go with
-        graphs on or off depending on showFigs
-        '''
-        if self.showFigs:
-            self.plot_calibration()
-        self.find_feats()
-
     def append_output_to_csv(self, csv_path, data):
         cols = [a for a in data.keys()]
         df = DataFrame(data, index=[0])
@@ -110,11 +101,35 @@ class ParticleFinder(object):
             else:
                 df.to_csv(f, header=False, cols=cols)
 
+    def apply_ROI(self):
+        '''
+        Filter all found features by whether they have been found
+        within this self.ROI
+        '''
+        bbPath = Path(asarray(
+                    list(zip(*(self.ROI.allxpoints, self.ROI.allypoints)))))
+        x_y_tuples = list(zip(*(self.features_all['x'].values,
+                                self.features_all['y'].values)))
+        mask = [bbPath.contains_point(asarray(i)) for i in x_y_tuples]
+        self.features = self.features_all[mask]
+        self.partCount, _ = histogram(self.features.frame,
+                                      bins=self.features.frame.max()+1)
+
+    def def_ROI(self, n=0):
+        '''
+        Define a ROI in the nth frame,
+        '''
+        imshow(self.frames[n])
+        self.ROI = roipoly(roicolor='r')
+
     def find_feats(self):
         '''
-        Checks whether parallel execution is on, otherwise normal batch
+        Check whether parallel execution is on, otherwise do normal batch
         processing
         '''
+        if self.showFigs:
+            self.plot_calibration()
+
         if self.parallel:
             # Create list of frames to be analysed by separate processes
             self.f_list = []
@@ -132,30 +147,25 @@ class ParticleFinder(object):
                                              repeat(self.threshold),
                                              repeat(self.maxsize)))
             # Concatenate results and assign to features (this is what every
-            # other function works on, except apply_ROI()) and all_features,
+            # other function works on, except apply_ROI()) and features_all,
             # which is kept to always be able to go back to working on the full
             # set of points
-            self.all_features = concat(res)
-            self.features = self.all_features
+            self.features_all = concat(res)
+            self.features = self.features_all
             # Close and join pool
             pool.close()
             pool.join()
             self.f_list = []
         else:
-            self.features = tp.batch(self.frames[:], self.featSize,
-                                     minmass=self.threshold,
-                                     maxsize=self.maxsize,
-                                     invert=False)
-
-    def pickle_data(self):
-        self.frames = []
-        with open(self.stackPath + '.pickle', 'wb') as f:
-            # Pickle the self using the highest protocol available.
-            dump(self, f, HIGHEST_PROTOCOL)
+            self.features_all = tp.batch(self.frames[:], self.featSize,
+                                         minmass=self.threshold,
+                                         maxsize=self.maxsize,
+                                         invert=False)
+            self.features = self.features_all
 
     def load_frames(self):
         '''
-        Load data from path, Check whether to extract frame intervals
+        Load data from path, check whether to extract frame intervals
         automatically
         '''
         if self.autoMetaDataExtract and '.nd2' in self.stackPath:
@@ -186,6 +196,27 @@ class ParticleFinder(object):
         # Read in image sequence from newly created file
         self.frames = ImageSequence(self.basePath+self.stackName+'/*.tif',
                                     as_grey=True)
+        # Careful, startFrame is for now only supported in DiffusionFitter,
+        # not in OffRateFitter, leave at zero for off rates until the fit
+        # methods have been verified to work with a startFrame different from 0
+        self.frames = self.frames[self.startFrame:]
+
+    def pickle_data(self, path=None, postfix=''):
+        '''
+        Pickle data to store on disk.
+
+        path     save pickled object elsewhere other than in the directory
+                 containing the imaging data.
+        postfix  add a postfix to the filename
+        '''
+        if path is None:
+            path = self.basePath + self.stackName + '.pickle'
+        else:
+            path = path + self.stackName + postfix + '.pickle'
+        self.frames = []  # Do not store image data (save speed and resources)
+        with open(path, 'wb') as f:
+            # Pickle self using the highest protocol available.
+            dump(self, f, HIGHEST_PROTOCOL)
 
     def plot_calibration(self, calibrationFrame=0):
         self.set_fig_style()
@@ -250,12 +281,12 @@ class DiffusionFitter(ParticleFinder):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.frames = self.frames[self.startFrame:]
 
-    def analyze(self):
-        super().analyze()
+    def analyze(self, analyzeTracks=True):
+        super().find_feats()
         self.link_feats()
-        self.analyze_tracks()
+        if analyzeTracks:
+            self.analyze_tracks()
         if self.showFigs:
             self.plot_trajectories()
             self.plot_msd()
@@ -281,35 +312,94 @@ class DiffusionFitter(ParticleFinder):
         self.a = DA[:, 0]
         self.D_restricted = mean(self.D[(self.a > 0.9) & (self.a < 1.2)])
 
-    def hist_step_size(self, numBin=None, histCut=None, n=1):
+    def filt_traj_by_t(self, start, stop):
+        self.trajectories = self.trajectories.groupby('particle').filter(
+            lambda p: (mean(p['frame']) >= start) &
+            (mean(p['frame']) <= stop))
+
+    def get_particle(self, part_num, isolate=True):
+        '''
+        Make movie with particles in part_num labelled with black box
+        '''
+        a = 4  # Distance of rectangle from particle midpoint
+        fs = array(self.frames)
+        for part in part_num:
+            p = self.trajectories.groupby('particle').get_group(part)
+            start = min(p.frame) - self.startFrame
+            stop = max(p.frame) - self.startFrame + 1
+            # fs = array(self.frames[start:stop])
+            s = shape(fs)
+
+            # Draw black rectangle around particle
+            x = round(p.x.as_matrix())
+            y = round(p.y.as_matrix())
+            for j in range(len(fs)):
+                if (j >= start) & (j < stop):
+                    i = j-start
+                    fs[j, y[i]-a:y[i]+a, x[i]-a] = 0
+                    fs[j, y[i]-a:y[i]+a, x[i]+a] = 0
+                    fs[j, y[i]-a, x[i]-a:x[i]+a] = 0
+                    fs[j, y[i]+a, x[i]-a:x[i]+a] = 0
+
+        if isolate:
+            context = 30  # At least 30 pixels distance on all sides
+            for part in part_num:
+                p = self.trajectories.groupby('particle').get_group(part)
+                start = min(p.frame) - self.startFrame
+                stop = max(p.frame) - self.startFrame + 1
+                pos = round(array([min(p.x) - context, max(p.x) + context,
+                            min(p.y) - context, max(p.y) + context]))
+                pos[pos < 0] = 0
+                imsave(str(part) + '.tif',
+                       fs[start:stop, pos[2]:pos[3], pos[0]:pos[1]])
+        else:
+            imsave('test' + '.tif', fs)
+
+    def hist_step_size(self, histCut=None, n=1, numBin=None):
         '''
         Plot histogram of step sizes.
 
-        n           number of frames to be jumped.
         histCut     cuts off the histogram, defaults to self.dist
+        n           number of frames to be jumped.
+        numBin      number of bins in histogram
         '''
         if histCut is None:
             histCut = self.dist
         grouped = self.trajectories.groupby('particle')
-        g = grouped.apply(lambda x: diff(x['x'], n=n)**2 +
-                          diff(x['y'], n=n)**2).values
-        g_flat = [sqrt(x) for y in g for x in y]
-        g_flat = [x for x in g_flat if x < histCut]
-        if numBin is None:
-            hist(g_flat)
-        else:
-            hist(g_flat, numBin)
-        show()
+        h = grouped.apply(lambda p: (p['x'][n:].values-p['x'][:-n].values)**2 +
+                                    (p['y'][n:].values-p['y'][:-n])**2).values
 
-    def link_feats(self):
+        h_flat = [sqrt(x) for x in h]
+        h_flat = [x for x in h_flat if x < histCut]
+
+        if numBin is None:
+            hist(h_flat)
+        else:
+            hist(h_flat, numBin)
+        show()
+        return h_flat
+
+    def link_feats(self, useAllFeats=True):
         '''
         Link individual frames to build trajectories, filter out stubs shorter
-        than minTrackLength. Get Mean Square Displacement (msd)
+        than minTrackLength. Get Mean Square Displacement (msd).
+
+        useAllFeats     True when linking should be run on all features,
+                        False when linking should be run only on the subset
+                        self.features, e.g. after apllying a ROI
         '''
+        # Make sure link_feats() is run on all particles by default
+        if useAllFeats:
+            self.features = self.features_all
+        # Can be run with diagnostics=True to get diagnostics columns, see docs
         t = tp.link_df(self.features, self.dist, memory=self.memory)
         self.trajectories = tp.filter_stubs(t, self.minTrackLength)
         # Get msd microns per pixel = 100/285., frames per second = 24
-        self.im = tp.imsd(self.trajectories, self.pixelSize, 1 / self.timestep)
+        self.im = tp.imsd(self.trajectories, self.pixelSize,
+                          1 / self.timestep)
+        if useAllFeats:
+            self.trajectories_all = self.trajectories
+            self.im_all = self.im
 
     def plot_diffusion_vs_alpha(self, xlim=None, ylim=None):
         grouped = self.trajectories.groupby('particle')
@@ -349,9 +439,9 @@ class DiffusionFitter(ParticleFinder):
                         bbox_inches='tight')
         show()
 
-    def plot_trajectories(self):
+    def plot_trajectories(self, label=False):
         self.set_fig_style()
-        fig = tp.plot_traj(self.trajectories, label=False)
+        fig = tp.plot_traj(self.trajectories, label=label)
         fig = fig.get_figure()
         if self.saveFigs:
             fig.savefig(self.stackPath + 'Particle_Trajectories' + '.pdf',
@@ -374,10 +464,14 @@ class DiffusionFitter(ParticleFinder):
 
     def save_output(self):
         super().save_summary_input()
-        columns = ['a', 'D']
-        combinedNumpyArray = c_[self.a, self.D]
-        d = DataFrame(data=combinedNumpyArray, columns=columns)
-        d.to_csv(self.basePath + 'D_a_'+self.stackName+'.csv')
+        # Check whether a and D have been created
+        if hasattr(self, 'a') and hasattr(self, 'D'):
+            columns = ['a', 'D']
+            combinedNumpyArray = c_[self.a, self.D]
+            d = DataFrame(data=combinedNumpyArray, columns=columns)
+            d.to_csv(self.basePath + 'D_a_'+self.stackName+'.csv')
+        else:
+            print('D and a are not available.')
 
     def gData(self):
         return {'Alpha_mean': self.a.mean(), 'D_mean': self.D.mean(),
@@ -394,7 +488,7 @@ class OffRateFitter(ParticleFinder):
         super().__init__(*args, **kwargs)
 
     def analyze(self):
-        super().analyze()
+        super().find_feats()
         self.partCount, _ = histogram(self.features.frame,
                                       bins=self.features.frame.max()+1)
         if self.autoMetaDataExtract and '.stk' in self.stackPath:
@@ -404,27 +498,6 @@ class OffRateFitter(ParticleFinder):
         else:
             self.fitTimes = arange(0, len(self.partCount)*self.timestep,
                                    self.timestep)
-
-    def apply_ROI(self):
-        '''
-        Filter all found features by whether they have been found
-        within this self.ROI
-        '''
-        bbPath = Path(asarray(
-                    list(zip(*(self.ROI.allxpoints, self.ROI.allypoints)))))
-        x_y_tuples = list(zip(*(self.all_features['x'].values,
-                                self.all_features['y'].values)))
-        mask = [bbPath.contains_point(asarray(i)) for i in x_y_tuples]
-        self.features = self.all_features[mask]
-        self.partCount, _ = histogram(self.features.frame,
-                                      bins=self.features.frame.max()+1)
-
-    def def_ROI(self, n=0):
-        '''
-        Define a ROI in the nth frame,
-        '''
-        imshow(self.frames[n])
-        self.ROI = roipoly(roicolor='r')
 
     def fit_offRate(self, variants=[1, 2, 3, 4, 5, 6]):
         '''
