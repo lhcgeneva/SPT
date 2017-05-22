@@ -2,13 +2,16 @@
 from IPython.core.debugger import Tracer
 from itertools import repeat, product
 from math import ceil, sqrt
+from matplotlib import cm, colors
 from matplotlib.path import Path
-from matplotlib.pyplot import (close, figure, gcf, hist, imshow, ioff, savefig,
-                               scatter, show, subplots)
+from matplotlib.pyplot import (axis, close, figure, gca, gcf, get_cmap, hist,
+                               imshow, ioff, savefig, scatter, show, subplots,
+                               setp)
+from mpl_toolkits.axes_grid.inset_locator import inset_axes
 from multiprocessing import Pool
-from numpy import (arange, array, asarray, c_, diff, dot, exp, histogram,
-                   linspace, log10, mean, polyfit, random, round, shape, sum,
-                   shape, transpose, zeros)
+from numpy import (arange, array, asarray, c_, cumsum, diff, dot, exp,
+                   histogram, linspace, log10, mean, polyfit, random, round,
+                   searchsorted, shape, sum, shape, transpose, zeros)
 from pandas import concat, DataFrame
 from pickle import dump, HIGHEST_PROTOCOL
 from pims import ImageSequence
@@ -230,9 +233,6 @@ class ParticleFinder(object):
             fig1.savefig(self.stackPath + 'Particle_Calibration' +
                          str(calibrationFrame) + '.png',
                          bbox_inches='tight')
-        if self.showFigs:
-            show()
-        close()
 
     def save_summary_input(self):
         data = {'dist': self.dist, 'featSize': self.featSize,
@@ -247,7 +247,7 @@ class ParticleFinder(object):
     def set_fig_style(self):
         ioff()
         sns.set_context("poster")
-        sns.set_style("dark", {"axes.facecolor": 'lightsage'})
+        sns.set_style("dark")
 
     def write_images(self):
         if not path.exists(self.basePath+self.stackName):
@@ -353,7 +353,7 @@ class DiffusionFitter(ParticleFinder):
                 imsave(str(part) + '.tif',
                        fs[start:stop, pos[2]:pos[3], pos[0]:pos[1]])
         else:
-            imsave('test' + '.tif', fs)
+            imsave(self.stackPath+'annotated'+'.tif', fs)
 
     def hist_step_size(self, histCut=None, n=1, numBin=None):
         '''
@@ -441,6 +441,8 @@ class DiffusionFitter(ParticleFinder):
 
     def plot_trajectories(self, label=False):
         self.set_fig_style()
+        ax = gca()
+        axis('equal')
         fig = tp.plot_traj(self.trajectories, label=label)
         fig = fig.get_figure()
         if self.saveFigs:
