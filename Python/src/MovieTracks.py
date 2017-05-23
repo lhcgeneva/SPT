@@ -65,10 +65,16 @@ class ParticleFinder(object):
     '''
 
     def __init__(self, filePath=None, threshold=40,
-                 autoMetaDataExtract=True, dist=5, featSize=7, maxsize=None,
-                 memory=7, minTrackLength=80, no_workers=8, numFrames=10,
-                 parallel=True, pixelSize=0.120, saveFigs=False,
-                 showFigs=False, startFrame=0, startLag=1, timestep=None):
+                 autoMetaDataExtract=True, dist=5, featSize=7,
+                 link_strat='drop', maxsize=None, memory=7, minTrackLength=80,
+                 no_workers=8, numFrames=10, parallel=True, pixelSize=0.120,
+                 saveFigs=False, showFigs=False, startFrame=0, startLag=1,
+                 timestep=None):
+        '''
+        Initialize ParticleFinder object. Make sure to check whether all
+        standard parameters make sense, in particular dist, featSize,
+        link_strat, pixelSize, memory, minTrackLength
+        '''
         self.no_workers = no_workers
         self.parallel = parallel
         self.saveFigs = saveFigs
@@ -78,6 +84,7 @@ class ParticleFinder(object):
             self.autoMetaDataExtract = autoMetaDataExtract
             self.dist = dist
             self.featSize = featSize
+            self.link_strat = link_strat
             self.maxsize = maxsize
             self.memory = memory
             self.minTrackLength = minTrackLength
@@ -104,17 +111,22 @@ class ParticleFinder(object):
             else:
                 df.to_csv(f, header=False, cols=cols)
 
-    def apply_ROI(self):
+    def apply_ROI(self, useAllFeats=False):
         '''
         Filter all found features by whether they have been found
         within this self.ROI
+        useAllFeats     get features by masking out from features_all
         '''
+        if useAllFeats:
+            features = self.features_all
+        else:
+            features = self.features
         bbPath = Path(asarray(
                     list(zip(*(self.ROI.allxpoints, self.ROI.allypoints)))))
-        x_y_tuples = list(zip(*(self.features_all['x'].values,
-                                self.features_all['y'].values)))
+        x_y_tuples = list(zip(*(features['x'].values,
+                                features['y'].values)))
         mask = [bbPath.contains_point(asarray(i)) for i in x_y_tuples]
-        self.features = self.features_all[mask]
+        self.features = features[mask]
         self.partCount, _ = histogram(self.features.frame,
                                       bins=self.features.frame.max()+1)
 
@@ -283,8 +295,18 @@ class DiffusionFitter(ParticleFinder):
         super().__init__(*args, **kwargs)
 
     def analyze(self, analyzeTracks=True):
+        '''
+        This should only be run the first time a movie is analyzed,
+        as it uses features_all.
+        '''
         super().find_feats()
-        self.link_feats()
+        # To be able to check whether frame has been assigned in link_feats()
+        # assign to empty data frame first
+        self.trajectories = DataFrame([])
+        self.im = DataFrame([])
+        self.trajectories_all = DataFrame([])
+        self.im_all = DataFrame([])
+        self.link_feats(useAllFeats=True)
         if analyzeTracks:
             self.analyze_tracks()
         if self.showFigs:
@@ -313,37 +335,39 @@ class DiffusionFitter(ParticleFinder):
         self.D_restricted = mean(self.D[(self.a > 0.9) & (self.a < 1.2)])
 
     def filt_traj_by_t(self, start, stop):
+        '''
+        Trajectories are filtered by time only leaving trajectories whose mean
+        frame number is greater or equal to start and smaller or equal to stop.
+        '''
         self.trajectories = self.trajectories.groupby('particle').filter(
             lambda p: (mean(p['frame']) >= start) &
             (mean(p['frame']) <= stop))
 
-    def get_particle(self, part_num, isolate=True):
+    def get_particle(self, parts, isolate=True):
         '''
-        Make movie with particles in part_num labelled with black box
+        Make movie with particles in parts labelled with black box
         '''
         a = 4  # Distance of rectangle from particle midpoint
         fs = array(self.frames)
-        for part in part_num:
+        for part in parts:
+            # Get particle trajectory and its start and end frame
             p = self.trajectories.groupby('particle').get_group(part)
             start = min(p.frame) - self.startFrame
             stop = max(p.frame) - self.startFrame + 1
-            # fs = array(self.frames[start:stop])
-            s = shape(fs)
-
             # Draw black rectangle around particle
-            x = round(p.x.as_matrix())
-            y = round(p.y.as_matrix())
+            x = p.x.round().astype(int)
+            y = p.y.round().astype(int)
             for j in range(len(fs)):
                 if (j >= start) & (j < stop):
-                    i = j-start
-                    fs[j, y[i]-a:y[i]+a, x[i]-a] = 0
-                    fs[j, y[i]-a:y[i]+a, x[i]+a] = 0
-                    fs[j, y[i]-a, x[i]-a:x[i]+a] = 0
-                    fs[j, y[i]+a, x[i]-a:x[i]+a] = 0
-
+                    i = self.startFrame+j
+                    if i in y.index:
+                        fs[j, y.loc[i]-a:y.loc[i]+a, x.loc[i]-a] = 0
+                        fs[j, y.loc[i]-a:y.loc[i]+a, x.loc[i]+a] = 0
+                        fs[j, y.loc[i]-a, x.loc[i]-a:x.loc[i]+a] = 0
+                        fs[j, y.loc[i]+a, x.loc[i]-a:x.loc[i]+a] = 0
         if isolate:
             context = 30  # At least 30 pixels distance on all sides
-            for part in part_num:
+            for part in parts:
                 p = self.trajectories.groupby('particle').get_group(part)
                 start = min(p.frame) - self.startFrame
                 stop = max(p.frame) - self.startFrame + 1
@@ -379,7 +403,7 @@ class DiffusionFitter(ParticleFinder):
         show()
         return h_flat
 
-    def link_feats(self, useAllFeats=True):
+    def link_feats(self, useAllFeats=False, mTL=None):
         '''
         Link individual frames to build trajectories, filter out stubs shorter
         than minTrackLength. Get Mean Square Displacement (msd).
@@ -388,35 +412,112 @@ class DiffusionFitter(ParticleFinder):
                         False when linking should be run only on the subset
                         self.features, e.g. after apllying a ROI
         '''
-        # Make sure link_feats() is run on all particles by default
-        if useAllFeats:
-            self.features = self.features_all
-        # Can be run with diagnostics=True to get diagnostics columns, see docs
-        t = tp.link_df(self.features, self.dist, memory=self.memory)
-        self.trajectories = tp.filter_stubs(t, self.minTrackLength)
-        # Get msd microns per pixel = 100/285., frames per second = 24
-        self.im = tp.imsd(self.trajectories, self.pixelSize,
-                          1 / self.timestep)
-        if useAllFeats:
-            self.trajectories_all = self.trajectories
-            self.im_all = self.im
 
-    def plot_diffusion_vs_alpha(self, xlim=None, ylim=None):
+        # For better readability define all parameters here
+        dist = self.dist
+        memory = self.memory
+        pixelSize = self.pixelSize
+        timestep = self.timestep
+        if mTL is None:
+            mTL = self.minTrackLength
+        if useAllFeats:
+            features = self.features_all
+        else:
+            features = self.features
+
+        # Run linking using the above parameters
+        # Can be run with diagnostics=True to get diagnostics, see docs.
+        # link_strategy='drop' drops particle instead of resolving subnetwork.
+        t = tp.link_df(features, dist, memory=memory,
+                       link_strategy=self.link_strat)
+        trajectories = tp.filter_stubs(t, mTL)
+        # Get msd
+        im = tp.imsd(trajectories, pixelSize, 1 / timestep)
+
+        # Assign to the object attributes specified by useAllFeats
+        if useAllFeats:
+            self.trajectories_all = trajectories
+            self.im_all = im
+        else:
+            self.trajectories = trajectories
+            self.im = im
+
+        # If link_feats hasn't been run before, self.trajectories and self.im
+        # are empty, therefore assign trajectories and im to self.trajectories
+        # and self.im, so they are the same as trajectories_all and im_all
+        if (self.trajectories.empty and self.im.empty):
+            self.trajectories = trajectories
+            self.im = im
+
+    def plot_diffusion_vs_alpha(self, xlim=None, ylim=None, percentile=0.9):
+        '''
+        Plots diffusion coefficient vs anomalous diffusion exponent
+        xlim        range for x values to be shown
+        ylim        range for y values to be shown
+        percentile  sets upper limit of dynamic range used for colorcode
+        '''
         grouped = self.trajectories.groupby('particle')
+
+        # Decide what information goes into color code
+        # Particle mass
         weights = [mean(group.mass) for name, group in grouped]
-        weights1 = self.trajectories.particle.value_counts(sort=False).tolist()
-        weights = [x if x <= 100 else 100 for x in weights1]
-        weights = [x if x < 0.03 else 0.03 for x in self.res]
+        # Number of frames particle was found in
+        weights = self.trajectories.particle.value_counts(sort=False).tolist()
+        # Residues of fit
+        weights = [x[0] for x in self.res]
+        # # Appearance time relative to movie length
+        # weights = (self.trajectories.groupby('particle').
+        #            apply(lambda p: mean(p['frame'])))
+        # if not weights.index.is_monotonic:
+        #     print('Aborting, time might not be grouped with right D/a.')
+        #     exit()
+        # weights = weights.values
+        # Get histogram of weights to choose a sensible dynamic range for
+        # the color code in case the weights have big top outliers
+        h = histogram(weights, 20)  # 20 bins
+        cs_h = cumsum(h[0])
+        ma = max(cs_h)  # Get maximum of cumulative sum
+        perc = ma * percentile  # Get 90th percentile
+        idx = searchsorted(cs_h, perc)  # Find index in histogram bins
+        thresh = h[1][idx]  # Get threshold from histogram bins
+        cs_thresh = [x if x <= thresh else thresh for x in weights]
+
+        # Build color map
+        autumn = get_cmap('winter_r')  # Set colormap
+        cNorm = colors.Normalize(vmin=min(cs_thresh), vmax=max(cs_thresh))
+        scalarMap = cm.ScalarMappable(norm=cNorm, cmap=autumn)
+        cs_scaled = [scalarMap.to_rgba(x) for x in cs_thresh]
+
+        # Build figure
         self.set_fig_style()
         fig = figure()
         ax = fig.add_subplot(111)
-        ax.scatter(self.a, self.D, c=weights, edgecolors='none', alpha=0.5,
+        # Histogram inset
+        inset_hist = inset_axes(ax, width="35%", height="35%", loc=2,
+                                borderpad=3.)
+        inset_hist.title.set_text('Weight hist and cut-off used for coloring.')
+        inset_hist.title.set_size(10)
+        # Color histogram according to colorcode
+        n, bins, patches = inset_hist.hist(weights, 20)
+        bin_centers = 0.5 * (bins[:-1] + bins[1:])[:idx]
+        patches = patches[:idx]
+        ids = searchsorted(cs_thresh, bin_centers)
+        cNorm = colors.Normalize(vmin=min(bin_centers), vmax=max(bin_centers))
+        scalarMap1 = cm.ScalarMappable(norm=cNorm, cmap=autumn)
+        cs_scaled1 = [scalarMap.to_rgba(x) for x in bin_centers]
+        for c, p in zip(cs_scaled1, patches):
+            setp(p, 'facecolor', c)
+        inset_hist.plot((thresh, thresh), (0, max(h[0])), 'k-')
+        inset_hist.tick_params(labelsize=9)
+        # Scatter plot alpha vs D
+        ax.scatter(self.a, self.D, c=cs_scaled, edgecolors='none', alpha=0.5,
                    s=50)
         ax.set(ylabel='D [$\mu$m$^2$/$s$]', xlabel=r'$\alpha$')
         if xlim is not None:
             ax.set_xlim(xlim)
         if ylim is not None:
             ax.set_ylim(ylim)
+        # Save and show figure
         if self.saveFigs:
             savefig(self.stackPath + 'Particle_D_a.pdf', bbox_inches='tight')
         if self.showFigs:
