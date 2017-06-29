@@ -1,7 +1,6 @@
 # Author: Lars Hubatsch, object oriented wrapper for trackpy
 from IPython.core.debugger import Tracer
 from itertools import repeat, product
-from math import ceil, sqrt
 from matplotlib import cm, colors
 from matplotlib.path import Path
 from matplotlib.pyplot import (axis, close, figure, gca, gcf, get_cmap, hist,
@@ -9,9 +8,9 @@ from matplotlib.pyplot import (axis, close, figure, gca, gcf, get_cmap, hist,
                                setp)
 from mpl_toolkits.axes_grid.inset_locator import inset_axes
 from multiprocessing import Pool
-from numpy import (arange, array, asarray, c_, cumsum, diff, dot, exp,
+from numpy import (arange, array, asarray, c_, ceil, cumsum, diff, dot, exp,
                    histogram, linspace, log10, mean, polyfit, random, round,
-                   searchsorted, shape, sum, shape, transpose, zeros)
+                   searchsorted, shape, sqrt, sum, shape, transpose, zeros)
 from pandas import concat, DataFrame
 from pickle import dump, HIGHEST_PROTOCOL
 from pims import ImageSequence
@@ -19,6 +18,7 @@ from pims_nd2 import ND2_Reader
 from os import chdir, makedirs, path, stat
 from re import findall, split
 from scipy import integrate, optimize
+from shutil import rmtree
 from sys import exit
 from tifffile import imsave, TiffFile
 import warnings
@@ -64,10 +64,10 @@ class ParticleFinder(object):
     timestep            real time difference between frames
     '''
 
-    def __init__(self, filePath=None, threshold=40,
-                 autoMetaDataExtract=True, dist=5, featSize=7,
+    def __init__(self, filePath=None, threshold=40, adaptive_stop=None,
+                 autoMetaDataExtract=True, dist=5, endFrame=None, featSize=7,
                  link_strat='drop', maxsize=None, memory=7, minTrackLength=80,
-                 no_workers=8, numFrames=10, parallel=True, pixelSize=0.120,
+                 no_workers=8, numFrames=10, parallel=True, pixelSize=0.124,
                  saveFigs=False, showFigs=False, startFrame=0, startLag=1,
                  timestep=None):
         '''
@@ -81,8 +81,10 @@ class ParticleFinder(object):
         self.showFigs = showFigs
         self.timestep = timestep
         if filePath is not None:
+            self.adaptive_stop = adaptive_stop
             self.autoMetaDataExtract = autoMetaDataExtract
             self.dist = dist
+            self.endFrame = endFrame
             self.featSize = featSize
             self.link_strat = link_strat
             self.maxsize = maxsize
@@ -107,9 +109,9 @@ class ParticleFinder(object):
             # bug, should be fixed in next pandas release.
             if stat(csv_path).st_size == 0:
                 # Make sure to keep alphabetical order!!!
-                df.to_csv(f, header=True, cols=cols)
+                df.to_csv(f, header=True, columns=cols)
             else:
-                df.to_csv(f, header=False, cols=cols)
+                df.to_csv(f, header=False, columns=cols)
 
     def apply_ROI(self, useAllFeats=False):
         '''
@@ -136,6 +138,18 @@ class ParticleFinder(object):
         '''
         imshow(self.frames[n])
         self.ROI = roipoly(roicolor='r')
+
+    def delete_images(self):
+        '''
+        Delete images from tif directory.
+        '''
+        if  '.stk' in self.stackPath:
+            tif_path = self.basePath+self.stackName
+            if path.exists(tif_path):
+                rmtree(tif_path)
+        else:
+            print('Not deleting files, no .stk file available ' +
+                  'tiffs are potentially the only record of the data')
 
     def find_feats(self):
         '''
@@ -201,7 +215,7 @@ class ParticleFinder(object):
                 print('Input time step ignored, extracted timestep is ' +
                       str(self.timestep))
         elif ((self.autoMetaDataExtract and '.nd2' not in self.stackPath) or
-                self.timestep is None):
+              self.timestep is None):
             print(''''Metadata extraction currently only supported for
                        .nd2 and .stk files. Please provide the timestep as
                        optional argument to ParticleFinder.''')
@@ -214,7 +228,10 @@ class ParticleFinder(object):
         # Careful, startFrame is for now only supported in DiffusionFitter,
         # not in OffRateFitter, leave at zero for off rates until the fit
         # methods have been verified to work with a startFrame different from 0
-        self.frames = self.frames[self.startFrame:]
+        if self.endFrame is None:
+            self.frames = self.frames[self.startFrame:]
+        else:
+            self.frames = self.frames[self.startFrame:self.endFrame]
 
     def pickle_data(self, path=None, postfix=''):
         '''
@@ -343,9 +360,9 @@ class DiffusionFitter(ParticleFinder):
             lambda p: (mean(p['frame']) >= start) &
             (mean(p['frame']) <= stop))
 
-    def get_particle(self, parts, isolate=True):
+    def make_labelled_movie(self, parts, isolate=True):
         '''
-        Make movie with particles in parts labelled with black box
+        Make movie with particles in list [parts] labelled with black box
         '''
         a = 4  # Distance of rectangle from particle midpoint
         fs = array(self.frames)
@@ -372,12 +389,12 @@ class DiffusionFitter(ParticleFinder):
                 start = min(p.frame) - self.startFrame
                 stop = max(p.frame) - self.startFrame + 1
                 pos = round(array([min(p.x) - context, max(p.x) + context,
-                            min(p.y) - context, max(p.y) + context]))
+                            min(p.y) - context, max(p.y) + context])).astype(int)
                 pos[pos < 0] = 0
-                imsave(str(part) + '.tif',
+                imsave(str(int(part)) + '.tif',
                        fs[start:stop, pos[2]:pos[3], pos[0]:pos[1]])
         else:
-            imsave(self.stackPath+'annotated'+'.tif', fs)
+            imsave('/Users/hubatsl/Desktop/'+'_'.join(self.stackPath.split('/')[-2:])+'annotated'+'.tif', fs)
 
     def hist_step_size(self, histCut=None, n=1, numBin=None):
         '''
@@ -389,19 +406,20 @@ class DiffusionFitter(ParticleFinder):
         '''
         if histCut is None:
             histCut = self.dist
-        grouped = self.trajectories.groupby('particle')
-        h = grouped.apply(lambda p: (p['x'][n:].values-p['x'][:-n].values)**2 +
-                                    (p['y'][n:].values-p['y'][:-n])**2).values
-
-        h_flat = [sqrt(x) for x in h]
-        h_flat = [x for x in h_flat if x < histCut]
-
+        g = self.trajectories.groupby('particle')
+        h = g.apply(lambda p: sqrt((p['x'][n:].values-p['x'][:-n].values)**2 +
+                                   (p['y'][n:].values-p['y'][:-n])**2)).values
+        # apply().values seems to give different format, if groupby only has
+        # one group, therefore treat this case separately below.
+        if len(g) == 1:
+            h = h[0]
+        h_cut = [x for x in h if x < histCut]
         if numBin is None:
-            hist(h_flat)
+            hist(h_cut)
         else:
-            hist(h_flat, numBin)
+            hist(h_cut, numBin)
         show()
-        return h_flat
+        return h_cut
 
     def link_feats(self, useAllFeats=False, mTL=None):
         '''
@@ -429,7 +447,7 @@ class DiffusionFitter(ParticleFinder):
         # Can be run with diagnostics=True to get diagnostics, see docs.
         # link_strategy='drop' drops particle instead of resolving subnetwork.
         t = tp.link_df(features, dist, memory=memory,
-                       link_strategy=self.link_strat)
+                       link_strategy=self.link_strat, adaptive_stop=self.adaptive_stop)
         trajectories = tp.filter_stubs(t, mTL)
         # Get msd
         im = tp.imsd(trajectories, pixelSize, 1 / timestep)

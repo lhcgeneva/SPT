@@ -33,7 +33,7 @@ def adj_thresh(calibFrame, thresh, maxSize, startFrame):
 # Read in initial values from excel file if defined, otherwise get default
 xls_db = read_excel(xls_file)
 if isnan(xls_db['Threshold'][movieNo]):
-    xls_db.loc[movieNo, 'Threshold'] = 2600
+    xls_db.loc[movieNo, 'Threshold'] = 3000
 thresh = int(xls_db['Threshold'][movieNo])
 if isnan(xls_db['StartFrame'][movieNo]):
     xls_db.loc[movieNo, 'StartFrame'] = 0
