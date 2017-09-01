@@ -117,6 +117,7 @@ class ParticleFinder(object):
         '''
         Filter all found features by whether they have been found
         within this self.ROI
+        
         useAllFeats     get features by masking out from features_all
         '''
         if useAllFeats:
@@ -355,6 +356,9 @@ class DiffusionFitter(ParticleFinder):
         '''
         Trajectories are filtered by time only leaving trajectories whose mean
         frame number is greater or equal to start and smaller or equal to stop.
+        Start and stop take the total length of the movie as a reference, similar
+        to startFrame and endFrame. If startFrame==800 and endFrame=1500, start
+        and stop could be 900 and 1100, for example.
         '''
         self.trajectories = self.trajectories.groupby('particle').filter(
             lambda p: (mean(p['frame']) >= start) &
@@ -391,10 +395,10 @@ class DiffusionFitter(ParticleFinder):
                 pos = round(array([min(p.x) - context, max(p.x) + context,
                             min(p.y) - context, max(p.y) + context])).astype(int)
                 pos[pos < 0] = 0
-                imsave(str(int(part)) + '.tif',
+                imsave(self.basePath+str(int(part)) + '.tif',
                        fs[start:stop, pos[2]:pos[3], pos[0]:pos[1]])
         else:
-            imsave('/Users/hubatsl/Desktop/'+'_'.join(self.stackPath.split('/')[-2:])+'annotated'+'.tif', fs)
+            imsave(self.basePath+'_'.join(self.stackPath.split('/')[-2:])+'annotated'+'.tif', fs)
 
     def hist_step_size(self, histCut=None, n=1, numBin=None):
         '''
