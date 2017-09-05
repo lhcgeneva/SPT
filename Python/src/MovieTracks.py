@@ -8,9 +8,10 @@ from matplotlib.pyplot import (axis, close, figure, gca, gcf, get_cmap, hist,
                                setp)
 from mpl_toolkits.axes_grid.inset_locator import inset_axes
 from multiprocessing import Pool
-from numpy import (arange, array, asarray, c_, ceil, cumsum, diff, dot, exp,
-                   histogram, linspace, log10, mean, polyfit, random, round,
-                   searchsorted, shape, sqrt, sum, shape, transpose, zeros)
+from numpy import (arange, array, asarray, c_, ceil, cumsum, diag, diff, dot,
+                   exp, histogram, invert, linspace, log10, mean, polyfit,
+                   random, round, searchsorted, shape, sqrt, sum, shape,
+                   transpose, zeros)
 from pandas import concat, DataFrame
 from pickle import dump, HIGHEST_PROTOCOL
 from pims import ImageSequence
@@ -113,12 +114,14 @@ class ParticleFinder(object):
             else:
                 df.to_csv(f, header=False, columns=cols)
 
-    def apply_ROI(self, useAllFeats=False):
+    def apply_ROI(self, useAllFeats=False, inversion=False):
         '''
         Filter all found features by whether they have been found
         within this self.ROI
         
         useAllFeats     get features by masking out from features_all
+        inversion       inverts mask, so all particles outside the mask are
+                        used for quantification
         '''
         if useAllFeats:
             features = self.features_all
@@ -129,7 +132,10 @@ class ParticleFinder(object):
         x_y_tuples = list(zip(*(features['x'].values,
                                 features['y'].values)))
         mask = [bbPath.contains_point(asarray(i)) for i in x_y_tuples]
-        self.features = features[mask]
+        if inversion:
+            self.features = features[invert(mask)]
+        else:
+            self.features = features[mask]
         self.partCount, _ = histogram(self.features.frame,
                                       bins=self.features.frame.max()+1)
 
@@ -144,7 +150,7 @@ class ParticleFinder(object):
         '''
         Delete images from tif directory.
         '''
-        if  '.stk' in self.stackPath:
+        if '.stk' in self.stackPath:
             tif_path = self.basePath+self.stackName
             if path.exists(tif_path):
                 rmtree(tif_path)
@@ -356,9 +362,10 @@ class DiffusionFitter(ParticleFinder):
         '''
         Trajectories are filtered by time only leaving trajectories whose mean
         frame number is greater or equal to start and smaller or equal to stop.
-        Start and stop take the total length of the movie as a reference, similar
-        to startFrame and endFrame. If startFrame==800 and endFrame=1500, start
-        and stop could be 900 and 1100, for example.
+        Start and stop take the total length of the movie as a reference, 
+        similar to startFrame and endFrame.
+        If startFrame==800 and endFrame=1500, start and stop could be
+        900 and 1100, for example.
         '''
         self.trajectories = self.trajectories.groupby('particle').filter(
             lambda p: (mean(p['frame']) >= start) &
@@ -393,12 +400,14 @@ class DiffusionFitter(ParticleFinder):
                 start = min(p.frame) - self.startFrame
                 stop = max(p.frame) - self.startFrame + 1
                 pos = round(array([min(p.x) - context, max(p.x) + context,
-                            min(p.y) - context, max(p.y) + context])).astype(int)
+                            min(p.y) - context, max(p.y) +
+                            context])).astype(int)
                 pos[pos < 0] = 0
                 imsave(self.basePath+str(int(part)) + '.tif',
                        fs[start:stop, pos[2]:pos[3], pos[0]:pos[1]])
         else:
-            imsave(self.basePath+'_'.join(self.stackPath.split('/')[-2:])+'annotated'+'.tif', fs)
+            imsave(self.basePath+'_'.join(self.stackPath.split('/')[-2:]) +
+                   'annotated'+'.tif', fs)
 
     def hist_step_size(self, histCut=None, n=1, numBin=None):
         '''
@@ -451,7 +460,8 @@ class DiffusionFitter(ParticleFinder):
         # Can be run with diagnostics=True to get diagnostics, see docs.
         # link_strategy='drop' drops particle instead of resolving subnetwork.
         t = tp.link_df(features, dist, memory=memory,
-                       link_strategy=self.link_strat, adaptive_stop=self.adaptive_stop)
+                       link_strategy=self.link_strat,
+                       adaptive_stop=self.adaptive_stop)
         trajectories = tp.filter_stubs(t, mTL)
         # Get msd
         im = tp.imsd(trajectories, pixelSize, 1 / timestep)
@@ -703,8 +713,10 @@ class OffRateFitter(ParticleFinder):
                     return ((count0 - countInf) *
                             exp(-koff*count0/countInf*times) + countInf)
                 return curried_exact_solution
+            kOffStart, countInf = 0.005, 50
             popt, pcov = optimize.curve_fit(exact_solution(self.partCount[0]),
-                                            self.fitTimes, self.partCount)
+                                            self.fitTimes, self.partCount,
+                                            [kOffStart, countInf])
             self.kOffVar4 = popt[0]
             func = exact_solution(self.partCount[0])
             self.fitSolVar4 = [func(t, popt[0], popt[1])
@@ -723,7 +735,10 @@ class OffRateFitter(ParticleFinder):
                 return curried_exact_solution
             popt, pcov = optimize.curve_fit(exact_solution(self.partCount[0]),
                                             self.fitTimes, self.partCount,
-                                            [-0.1, -0.2, -0.3], maxfev=10000)
+                                            [-0.006, -0.1, 0.1], maxfev=10000)
+            print(popt)
+            print(sqrt(diag(pcov)))
+            print(popt/sqrt(diag(pcov)))
             self.kPhVar5 = popt[2]
             self.kOnVar5 = (popt[0]*popt[1]) / self.kPhVar5
             self.kOffVar5 = -(popt[0]+popt[1]) - (self.kOnVar5+self.kPhVar5)
@@ -744,7 +759,7 @@ class OffRateFitter(ParticleFinder):
                         (kPh+r1) / (r1-r2) * exp(r2*times)))
             popt, pcov = optimize.curve_fit(curried_exact_solution,
                                             self.fitTimes, self.partCount,
-                                            [-0.1, -0.2, -0.3, 200],
+                                            [-0.1, -0.2, -0.01, 200],
                                             maxfev=10000)
             self.count0Var6 = popt[3]
             self.kPhVar6 = popt[2]
