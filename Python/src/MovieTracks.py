@@ -10,8 +10,8 @@ from mpl_toolkits.axes_grid.inset_locator import inset_axes
 from multiprocessing import Pool
 from numpy import (arange, array, asarray, c_, ceil, cumsum, diag, diff, dot,
                    exp, histogram, invert, linspace, log10, mean, polyfit,
-                   random, round, searchsorted, shape, sqrt, sum, shape,
-                   transpose, zeros)
+                   random, round, searchsorted, select, shape, sqrt, sum,
+                   shape, transpose, zeros)
 from pandas import concat, DataFrame
 from pickle import dump, HIGHEST_PROTOCOL
 from pims import ImageSequence
@@ -612,6 +612,55 @@ class DiffusionFitter(ParticleFinder):
         return {'Alpha_mean': self.a.mean(), 'D_mean': self.D.mean(),
                 'D_restr': self.D_restricted, 'File': self.stackPath}
 
+    def velocity_measurements(self):
+
+        df = self.trajectories
+
+        # x and y coordinate differences for each frame for each particle
+        df['xdiff'] =  df.groupby('particle')['x'].apply(lambda x: x - x.iloc[0])
+        df['ydiff'] =  df.groupby('particle')['y'].apply(lambda y: y - y.iloc[0])
+
+        # calculating the max displacement using Pythagorus (and adusting from pixels to microns)
+        xdiff_sq =  df.groupby('particle')['xdiff'].apply(lambda x: x ** 2)
+        ydiff_sq =  df.groupby('particle')['ydiff'].apply(lambda y: y ** 2)
+        df['disp'] =  ((xdiff_sq + ydiff_sq) ** 0.5) * self.pixelSize
+
+        # calculating number of frames at which particle achieves max displacement
+        df['frame_diff'] =  df.groupby('particle')['frame'].apply(lambda x: x - x.iloc[0])
+
+        # finding the final displacement
+        final_d = df.groupby('particle')['disp'].apply(lambda x: x.iloc[-1])
+        frames_at_final_d = df.groupby('particle')['frame_diff'].apply(lambda x: x.iloc[-1])
+
+        # finding maximum displacement (NOT final displacement)
+        idx = df.groupby(['particle'])['disp'].transform(max) == df['disp']
+        df2 = df[idx]
+        df2 = df2.copy()
+
+        # deleting unnnecesary columns and renaming
+        df2.drop(df2.columns[[0,1,2,3,4,5,6,7]], axis=1, inplace=True)
+        df2.rename(columns={'disp': 'max_disp', 'frame_diff':'frames_at_max'}, inplace=True)
+
+        # direction of movement at maximum displacement
+        conditions = [
+            (df2['xdiff'] > 0 ) & (df2['ydiff'] > 0 ),
+            (df2['xdiff'] > 0 ) & (df2['ydiff'] < 0 ),
+            (df2['xdiff'] < 0 ) & (df2['ydiff'] > 0 ),
+            (df2['xdiff'] < 0 ) & (df2['ydiff'] < 0 )
+        ]
+        directions = ['Right upwards','Right downwards','Left upwards','Left downwards']
+        df2['direction_at_max'] = select(conditions, directions)
+
+        # calculating max velocity 
+        df2['velocity_at_max'] = (df2['max_disp']/ (df2['frames_at_max']*(self.timestep/60)))
+
+        # calculating final velocity
+        df2['final_disp'] = final_d.values
+        df2['frames_at_final'] = frames_at_final_d.values
+        df2['velocity_at_final'] = (df2['final_disp']/ (df2['frames_at_final']*(self.timestep/60)))
+
+        # exporting to csv
+        df2.to_csv(self.stackPath[:-4] + '_velocities.csv')
 
 class OffRateFitter(ParticleFinder):
 
