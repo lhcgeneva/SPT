@@ -43,5 +43,5 @@ if isnan(xls_db['MaxSize'][movieNo]):
 maxSize = int(xls_db.loc[movieNo, 'MaxSize'])
 
 # interact/IPython widget
-interact(adj_thresh, thresh=str(thresh), calibFrame='-1',
+interact(adj_thresh, thresh=str(thresh), calibFrame='100',
          maxSize=str(maxSize), startFrame=str(startFrame), __manual=True)
