@@ -5,14 +5,14 @@ from matplotlib import cm, colors
 from matplotlib.mlab import normpdf
 from matplotlib.path import Path
 from matplotlib.pyplot import (axis, close, figure, gca, gcf, get_cmap, hist,
-                               imshow, ioff, legend, plot, savefig, scatter, show, subplots,
-                               setp)
+                               imshow, ioff, legend, plot, savefig, scatter,
+                               show, subplots, setp)
 from mpl_toolkits.axes_grid.inset_locator import inset_axes
 from multiprocessing import Pool
-from numpy import (arange, array, argmax, asarray, c_, ceil, cumsum, diag, diff, dot,
-                   exp, histogram, invert, linspace, log10, median, mean, polyfit,
-                   random, round, searchsorted, select, shape, sqrt, sum,
-                   shape, transpose, zeros)
+from numpy import (arange, array, argmax, asarray, c_, ceil, cumsum, diag,
+                   diff, dot, exp, histogram, invert, linspace, log10,
+                   median, mean, polyfit, random, round, searchsorted, select,
+                   shape, sqrt, sum, transpose, zeros)
 from pandas import concat, DataFrame
 from pickle import dump, HIGHEST_PROTOCOL
 from pims import ImageSequence
@@ -120,7 +120,7 @@ class ParticleFinder(object):
         '''
         Filter all found features by whether they have been found
         within this self.ROI
-        
+
         useAllFeats     get features by masking out from features_all
         inversion       inverts mask, so all particles outside the mask are
                         used for quantification
@@ -277,8 +277,8 @@ class ParticleFinder(object):
                 'memory': self.memory, 'no_workers': self.no_workers,
                 'parallel': self.parallel, 'pixelSize': self.pixelSize,
                 'threshold': self.threshold, 'timestep': self.timestep,
-                'startframe':self.startFrame, 'maxsize':self.maxsize,
-                'MTL':self.minTrackLength, 'ddgene path': self.stackPath}
+                'startframe': self.startFrame, 'maxsize': self.maxsize,
+                'MTL': self.minTrackLength, 'ddgene path': self.stackPath}
         frame_to_write = DataFrame(data, index=[0])
         frame_to_write.to_csv(self.basePath + 'summary'+self.stackName+'.csv')
         print('Summary saved.')
