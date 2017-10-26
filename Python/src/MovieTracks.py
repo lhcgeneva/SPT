@@ -2,14 +2,15 @@
 from IPython.core.debugger import Tracer
 from itertools import repeat, product
 from matplotlib import cm, colors
+from matplotlib.mlab import normpdf
 from matplotlib.path import Path
 from matplotlib.pyplot import (axis, close, figure, gca, gcf, get_cmap, hist,
-                               imshow, ioff, savefig, scatter, show, subplots,
+                               imshow, ioff, legend, plot, savefig, scatter, show, subplots,
                                setp)
 from mpl_toolkits.axes_grid.inset_locator import inset_axes
 from multiprocessing import Pool
-from numpy import (arange, array, asarray, c_, ceil, cumsum, diag, diff, dot,
-                   exp, histogram, invert, linspace, log10, mean, polyfit,
+from numpy import (arange, array, argmax, asarray, c_, ceil, cumsum, diag, diff, dot,
+                   exp, histogram, invert, linspace, log10, median, mean, polyfit,
                    random, round, searchsorted, select, shape, sqrt, sum,
                    shape, transpose, zeros)
 from pandas import concat, DataFrame
@@ -19,6 +20,7 @@ from pims_nd2 import ND2_Reader
 from os import chdir, makedirs, path, stat
 from re import findall, split
 from scipy import integrate, optimize
+from scipy.stats import norm
 from shutil import rmtree
 from sys import exit
 from tifffile import imsave, TiffFile
@@ -274,8 +276,9 @@ class ParticleFinder(object):
         data = {'dist': self.dist, 'featSize': self.featSize,
                 'memory': self.memory, 'no_workers': self.no_workers,
                 'parallel': self.parallel, 'pixelSize': self.pixelSize,
-                'timestep': self.threshold, 'timestep': self.timestep,
-                'path': self.stackPath}
+                'threshold': self.threshold, 'timestep': self.timestep,
+                'startframe':self.startFrame, 'maxsize':self.maxsize,
+                'MTL':self.minTrackLength, 'ddgene path': self.stackPath}
         frame_to_write = DataFrame(data, index=[0])
         frame_to_write.to_csv(self.basePath + 'summary'+self.stackName+'.csv')
         print('Summary saved.')
@@ -409,7 +412,7 @@ class DiffusionFitter(ParticleFinder):
             imsave(self.basePath+'_'.join(self.stackPath.split('/')[-2:]) +
                    'annotated'+'.tif', fs)
 
-    def hist_step_size(self, histCut=None, n=1, numBin=None):
+    def hist_step_size(self, histCut=None, mode='Dist_abs', n=1, numBin=None):
         '''
         Plot histogram of step sizes.
 
@@ -420,19 +423,42 @@ class DiffusionFitter(ParticleFinder):
         if histCut is None:
             histCut = self.dist
         g = self.trajectories.groupby('particle')
-        h = g.apply(lambda p: sqrt((p['x'][n:].values-p['x'][:-n].values)**2 +
-                                   (p['y'][n:].values-p['y'][:-n])**2)).values
-        # apply().values seems to give different format, if groupby only has
-        # one group, therefore treat this case separately below.
-        if len(g) == 1:
-            h = h[0]
-        h_cut = [x for x in h if x < histCut]
-        if numBin is None:
-            hist(h_cut)
-        else:
-            hist(h_cut, numBin)
-        show()
-        return h_cut
+        if mode is 'Dist_abs':
+            h = g.apply(lambda p: sqrt((p['x'][n:].values-p['x'][:-n].values)**2 +
+                                       (p['y'][n:].values-p['y'][:-n])**2)).values
+            # apply().values seems to give different format, if groupby only has
+            # one group, therefore treat this case separately below.
+            if len(g) == 1:
+                h = h[0]
+            h_cut = [x for x in h if x < histCut]
+            if numBin is None:
+                hist(h_cut)
+            else:
+                hist(h_cut, numBin)
+            show()
+            return h_cut
+
+        if mode is 'Dist_x_and_y':
+        	h = g.apply(lambda p: (p['x'][n:].values-p['x'][:-n].values)).values
+        	h = [item for sublist in h for item in sublist]
+        	h_cut = [x for x in h if x < histCut]
+        	r = g.apply(lambda p: (p['y'][n:].values-p['y'][:-n].values)).values
+        	r = [item for sublist in r for item in sublist]
+        	r_cut = [x for x in r if x < histCut]
+        	self.set_fig_style()
+        	fig, ax = subplots()
+        	n, bins, patches = hist(h_cut, numBin, alpha=0.75, normed=True)
+        	n, bins, patches = hist(r_cut, numBin, alpha=0.75, normed=True)
+        	ax.set(xlabel='Displacement [px]', ylabel='density of particles')
+        	mu, sigma = norm.fit(h_cut)
+        	y = normpdf (bins, mu, sigma)
+        	h_line = plot(bins, y, 'b--', linewidth=2)
+        	mu_2, sigma_2 = norm.fit(r_cut)
+        	y_2 = normpdf (bins, mu_2, sigma_2)
+        	r_line = plot(bins, y_2, 'g--', linewidth=2)
+        	legend(['x','y'])   
+        	show()
+        	return median(h_cut), median(r_cut)
 
     def link_feats(self, useAllFeats=False, mTL=None):
         '''
@@ -613,7 +639,6 @@ class DiffusionFitter(ParticleFinder):
                 'D_restr': self.D_restricted, 'File': self.stackPath}
 
     def velocity_measurements(self):
-
         df = self.trajectories
 
         # x and y coordinate differences for each frame for each particle
