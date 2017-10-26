@@ -6,14 +6,13 @@ from matplotlib.mlab import normpdf
 from matplotlib.path import Path
 from matplotlib.pyplot import (axis, close, figure, gca, gcf, get_cmap, hist,
                                imshow, ioff, legend, plot, savefig, scatter,
-                               show, subplots,
-                               setp)
+                               show, subplots, setp)
 from mpl_toolkits.axes_grid.inset_locator import inset_axes
 from multiprocessing import Pool
 from numpy import (arange, array, argmax, asarray, c_, ceil, cumsum, diag,
-                   diff, dot, exp, histogram, invert, linspace, log10, median,
-                   mean, polyfit, random, round, searchsorted, select, shape,
-                   sqrt, sum, shape, transpose, zeros)
+                   diff, dot, exp, histogram, invert, linspace, log10,
+                   median, mean, polyfit, random, round, searchsorted, select,
+                   shape, sqrt, sum, transpose, zeros)
 from pandas import concat, DataFrame
 from pickle import dump, HIGHEST_PROTOCOL
 from pims import ImageSequence
