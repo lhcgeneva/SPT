@@ -69,7 +69,7 @@ class ParticleFinder(object):
 
     def __init__(self, filePath=None, threshold=40, adaptive_stop=None,
                  autoMetaDataExtract=True, dist=5, endFrame=None, featSize=7,
-                 link_strat='drop', maxsize=None, memory=7, minTrackLength=80,
+                 link_strat='drop', maxsize=None, memory=7, minTrackLength=11,
                  no_workers=8, numFrames=10, parallel=True, pixelSize=0.124,
                  saveFigs=False, showFigs=False, startFrame=0, startLag=1,
                  timestep=None):
@@ -165,9 +165,9 @@ class ParticleFinder(object):
         Check whether parallel execution is on, otherwise do normal batch
         processing
         '''
+
         if self.showFigs:
             self.plot_calibration()
-
         if self.parallel:
             # Create list of frames to be analysed by separate processes
             self.f_list = []
@@ -271,6 +271,7 @@ class ParticleFinder(object):
             fig1.savefig(self.stackPath + 'Particle_Calibration' +
                          str(calibrationFrame) + '.png',
                          bbox_inches='tight')
+        savefig('/Users/hubatsl/Desktop/interplay-cell-size/MatsMets/Calib.pdf', transparent=True)
 
     def save_summary_input(self):
         data = {'dist': self.dist, 'featSize': self.featSize,
@@ -321,26 +322,29 @@ class DiffusionFitter(ParticleFinder):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
 
-    def analyze(self, analyzeTracks=True):
+    def analyze(self, analyzeTracks=True, findFeats=True, useAllFeats=True,
+                saveOut=False):
         '''
         This should only be run the first time a movie is analyzed,
         as it uses features_all.
         '''
-        super().find_feats()
+        if findFeats:
+            super().find_feats()
         # To be able to check whether frame has been assigned in link_feats()
         # assign to empty data frame first
         self.trajectories = DataFrame([])
         self.im = DataFrame([])
         self.trajectories_all = DataFrame([])
         self.im_all = DataFrame([])
-        self.link_feats(useAllFeats=True)
+        self.link_feats(useAllFeats=useAllFeats)
         if analyzeTracks:
             self.analyze_tracks()
         if self.showFigs:
             self.plot_trajectories()
             self.plot_msd()
             self.plot_diffusion_vs_alpha()
-        self.save_output()
+        if saveOut:
+            self.save_output()
 
     def analyze_tracks(self):
         # Convert to numpy, get diffusion coefficients
@@ -361,15 +365,22 @@ class DiffusionFitter(ParticleFinder):
         self.a = DA[:, 0]
         self.D_restricted = mean(self.D[(self.a > 0.9) & (self.a < 1.2)])
 
-    def filt_traj_by_t(self, start, stop):
+    def filt_traj_by_t(self, start, stop, useAllFeats=False):
         '''
         Trajectories are filtered by time only leaving trajectories whose mean
         frame number is greater or equal to start and smaller or equal to stop.
-        Start and stop take the total length of the movie as a reference, 
+        Start and stop take the total length of the movie as a reference,
         similar to startFrame and endFrame.
         If startFrame==800 and endFrame=1500, start and stop could be
         900 and 1100, for example.
         '''
+        if useAllFeats:
+            self.features = self.features_all
+            self.trajectories = self.trajectories_all
+
+        self.features = self.features.groupby('particle').filter(
+            lambda p: (mean(p['frame']) >= start) &
+            (mean(p['frame']) <= stop))
         self.trajectories = self.trajectories.groupby('particle').filter(
             lambda p: (mean(p['frame']) >= start) &
             (mean(p['frame']) <= stop))
@@ -392,10 +403,28 @@ class DiffusionFitter(ParticleFinder):
                 if (j >= start) & (j < stop):
                     i = self.startFrame+j
                     if i in y.index:
-                        fs[j, y.loc[i]-a:y.loc[i]+a, x.loc[i]-a] = 0
-                        fs[j, y.loc[i]-a:y.loc[i]+a, x.loc[i]+a] = 0
-                        fs[j, y.loc[i]-a, x.loc[i]-a:x.loc[i]+a] = 0
-                        fs[j, y.loc[i]+a, x.loc[i]-a:x.loc[i]+a] = 0
+                        y_minus = y.loc[i]-a
+                        y_plus = y.loc[i]+a
+                        x_minus = x.loc[i]-a
+                        x_plus = x.loc[i]+a
+                        # Check whether particle at image border
+                        # if y_plus>244:
+                        #     Tracer()()
+                        sh = fs.shape
+                        if y_minus < 0:
+                            y_minus = 0
+                        if y_plus > sh[1]-1:
+                            y_plus = sh[1]-1
+                        if x_minus < 0:
+                            x_minus = 0
+                        if x_plus > sh[2]-1:
+                            x_plus = sh[2]-1
+
+                        # Set frame around particle to zero (black rectangle)
+                        fs[j, y_minus:y_plus, x_minus] = 0
+                        fs[j, y_minus:y_plus, x_plus] = 0
+                        fs[j, y_minus, x_minus:x_plus] = 0
+                        fs[j, y_plus, x_minus:x_plus] = 0
         if isolate:
             context = 30  # At least 30 pixels distance on all sides
             for part in parts:
@@ -417,7 +446,8 @@ class DiffusionFitter(ParticleFinder):
         Plot histogram of step sizes.
 
         histCut     cuts off the histogram, defaults to self.dist
-        n           number of frames to be jumped.
+        n           number of frames to be jumped. Careful, this starts at 1,
+                    not at 0 if there no frame should be jumped.
         numBin      number of bins in histogram
         '''
         if histCut is None:
@@ -437,7 +467,7 @@ class DiffusionFitter(ParticleFinder):
                 hist(h_cut)
             else:
                 hist(h_cut, numBin)
-            show()
+            # show()
             return h_cut
 
         if mode is 'Dist_x_and_y':
@@ -536,7 +566,7 @@ class DiffusionFitter(ParticleFinder):
         # weights = weights.values
         # Get histogram of weights to choose a sensible dynamic range for
         # the color code in case the weights have big top outliers
-        h = histogram(weights, 20)  # 20 bins
+        h = histogram(weights, 40)  # 20 bins
         cs_h = cumsum(h[0])
         ma = max(cs_h)  # Get maximum of cumulative sum
         perc = ma * percentile  # Get 90th percentile
@@ -564,6 +594,7 @@ class DiffusionFitter(ParticleFinder):
         bin_centers = 0.5 * (bins[:-1] + bins[1:])[:idx]
         patches = patches[:idx]
         ids = searchsorted(cs_thresh, bin_centers)
+        # Tracer()()
         cNorm = colors.Normalize(vmin=min(bin_centers), vmax=max(bin_centers))
         scalarMap1 = cm.ScalarMappable(norm=cNorm, cmap=autumn)
         cs_scaled1 = [scalarMap.to_rgba(x) for x in bin_centers]
@@ -574,7 +605,8 @@ class DiffusionFitter(ParticleFinder):
         # Scatter plot alpha vs D
         ax.scatter(self.a, self.D, c=cs_scaled, edgecolors='none', alpha=0.5,
                    s=50)
-        ax.set(ylabel='D [$\mu$m$^2$/$s$]', xlabel=r'$\alpha$')
+        # ax.set(ylabel='D [$\mu$m$^2$/$s$]', xlabel=r'$\alpha$')
+        ax.set(ylabel='D [mu^2/s]', xlabel='alpha')
         if xlim is not None:
             ax.set_xlim(xlim)
         if ylim is not None:
@@ -590,7 +622,7 @@ class DiffusionFitter(ParticleFinder):
         df = DataFrame({'D': self.D, 'a': self.a})
         sns.set(style="white")
         sns.set(font_scale=2)
-        g = sns.PairGrid(df, diag_sharey=False, size=8)
+        g = sns.PairGrid(df, diag_sharey=False, size=5)
         g.map_lower(sns.kdeplot, cmap="Blues_d")
         g.map_upper(scatter)
         with warnings.catch_warnings():
@@ -605,9 +637,12 @@ class DiffusionFitter(ParticleFinder):
     def plot_trajectories(self, label=False):
         self.set_fig_style()
         ax = gca()
+        ax.set_facecolor('k')
         axis('equal')
         fig = tp.plot_traj(self.trajectories, label=label)
+        # savefig('/Users/hubatsl/Desktop/interplay-cell-size/Introduction/Traj.pdf', transparent=True)
         fig = fig.get_figure()
+        fig.patch.set_facecolor('k')
         if self.saveFigs:
             fig.savefig(self.stackPath + 'Particle_Trajectories' + '.pdf',
                         bbox_inches='tight')
@@ -670,7 +705,7 @@ class DiffusionFitter(ParticleFinder):
         df2 = df[idx]
         df2 = df2.copy()
 
-        # deleting unnnecesary columns and renaming
+        # deleting unnnecessary columns and renaming
         df2.drop(df2.columns[[0, 1, 2, 3, 4, 5, 6, 7]], axis=1, inplace=True)
         df2.rename(columns={'disp': 'max_disp', 'frame_diff': 'frames_at_max'},
                    inplace=True)
