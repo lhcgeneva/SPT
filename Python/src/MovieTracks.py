@@ -452,7 +452,7 @@ class DiffusionFitter(ParticleFinder):
         if histCut is None:
             histCut = self.dist
         g = self.trajectories.groupby('particle')
-        if mode is 'Dist_abs':
+        if mode == 'Dist_abs':
             h = (g.apply(lambda p: sqrt((p['x'][n:].values-p['x'][:-n].
                                         values)**2 +
                                         (p['y'][n:].values-p['y'][:-n])**2))
@@ -472,7 +472,7 @@ class DiffusionFitter(ParticleFinder):
             # show()
             return h_cut
 
-        if mode is 'Dist_x_and_y':
+        if mode == 'Dist_x_and_y':
             h = (g.apply(lambda p: (p['x'][n:].values-p['x'][:-n].values)).
                  values)
             h = [item for sublist in h for item in sublist]
