@@ -140,11 +140,15 @@ class ParticleFinder(object):
         self.partCount, _ = histogram(self.features.frame,
                                       bins=self.features.frame.max()+1)
 
-    def def_ROI(self, n=0):
+    def def_ROI(self, n=0, useAllFeats=False):
         '''
         Define a ROI in the nth frame,
         '''
-        imshow(self.frames[n])
+        if useAllFeats:
+            self.plot_trajectories()
+        else:
+            imshow(self.frames[n])
+        
         self.ROI = roipoly(roicolor='r')
 
     def delete_images(self):
