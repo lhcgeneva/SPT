@@ -5,7 +5,7 @@ from matplotlib import cm, colors
 from matplotlib.path import Path
 from matplotlib.pyplot import (axis, close, figure, gca, gcf, get_cmap, hist,
                                imshow, ioff, legend, plot, savefig, scatter,
-                               show, subplots, setp)
+                               show, subplots, setp, xlabel, ylabel)
 from mpl_toolkits.axes_grid.inset_locator import inset_axes
 from multiprocessing import Pool
 from numpy import (arange, array, argmax, asarray, c_, ceil, cumsum, diag,
@@ -466,6 +466,9 @@ class DiffusionFitter(ParticleFinder):
                 hist(h_cut)
             else:
                 hist(h_cut, numBin)
+
+            xlabel('step size [px]')
+            ylabel('# steps')
             # show()
             return h_cut
 
@@ -635,6 +638,7 @@ class DiffusionFitter(ParticleFinder):
 
     def plot_trajectories(self, label=False):
         self.set_fig_style()
+        figure(figsize=(10, 8), dpi=80)
         ax = gca()
         ax.set_facecolor('k')
         axis('equal')
