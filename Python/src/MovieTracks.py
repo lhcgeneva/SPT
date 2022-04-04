@@ -2,7 +2,6 @@
 from IPython.core.debugger import Tracer
 from itertools import repeat, product
 from matplotlib import cm, colors
-from matplotlib.mlab import normpdf
 from matplotlib.path import Path
 from matplotlib.pyplot import (axis, close, figure, gca, gcf, get_cmap, hist,
                                imshow, ioff, legend, plot, savefig, scatter,
@@ -485,10 +484,10 @@ class DiffusionFitter(ParticleFinder):
             n, bins, patches = hist(r_cut, numBin, alpha=0.75, normed=True)
             ax.set(xlabel='Displacement [px]', ylabel='density of particles')
             mu, sigma = norm.fit(h_cut)
-            y = normpdf(bins, mu, sigma)
+            y = norm.pdf(bins, mu, sigma)
             h_line = plot(bins, y, 'b--', linewidth=2)
             mu_2, sigma_2 = norm.fit(r_cut)
-            y_2 = normpdf(bins, mu_2, sigma_2)
+            y_2 = norm.pdf(bins, mu_2, sigma_2)
             r_line = plot(bins, y_2, 'g--', linewidth=2)
             legend(['x', 'y'])
             show()
