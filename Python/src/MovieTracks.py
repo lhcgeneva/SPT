@@ -235,8 +235,7 @@ class ParticleFinder(object):
         if 'nd2' or '.stk' or '.tif' in self.stackPath:
             self.write_images()
         # Read in image sequence from newly created file
-        self.frames = ImageSequence(self.basePath+self.stackName+'/*.tif',
-                                    as_grey=True)
+        self.frames = ImageSequence(self.basePath+self.stackName+'/*.tif')
         # Careful, startFrame is for now only supported in DiffusionFitter,
         # not in OffRateFitter, leave at zero for off rates until the fit
         # methods have been verified to work with a startFrame different from 0
